@@ -1,0 +1,151 @@
+"""
+Embedded FastAPI server for the Serket Workbench interface.
+
+The server is deliberately local-only in native mode. Result files may contain
+sensitive directory metadata, so the runtime disables caching and exposes no
+interactive API documentation.
+"""
+from __future__ import annotations
+
+import os
+import threading
+import webbrowser
+from typing import Any
+
+_UI_HTML_PATH = os.path.join(os.path.dirname(__file__), "..", "ui", "workbench.html")
+
+
+def _load_ui() -> str:
+    html_path = os.path.normpath(_UI_HTML_PATH)
+    if not os.path.isfile(html_path):
+        raise FileNotFoundError(f"Web UI not found: {html_path}")
+    with open(html_path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _normalise_graph(data: dict[str, Any]) -> dict[str, Any]:
+    """Return one stable graph shape across NetworkX node-link versions."""
+    graph = data.get("graph") or {}
+    nodes = graph.get("nodes") or []
+    edges = graph.get("edges") or graph.get("links") or []
+    return {
+        "directed": bool(graph.get("directed", True)),
+        "nodes": nodes,
+        "edges": edges,
+        "available": bool(nodes),
+    }
+
+
+def create_app(data: dict[str, Any]):
+    """Create the local, read-only API used by Serket Workbench."""
+    try:
+        from fastapi import FastAPI, Request
+        from fastapi.responses import HTMLResponse
+        from fastapi.staticfiles import StaticFiles
+    except ImportError as exc:
+        raise ImportError(
+            "FastAPI and uvicorn are required for --serve mode.\n"
+            "Install with:  pip install fastapi uvicorn"
+        ) from exc
+
+    html = _load_ui()
+    app = FastAPI(title="Serket Workbench", docs_url=None, redoc_url=None)
+    assets_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "ui"))
+    app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.middleware("http")
+    async def local_security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; "
+            "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "connect-src 'self'; object-src 'none'; base-uri 'none'; "
+            "form-action 'none'; frame-ancestors 'none'"
+        )
+        return response
+
+    @app.get("/", response_class=HTMLResponse)
+    async def ui():
+        return html
+
+    @app.get("/healthz")
+    async def health():
+        return {"status": "ok", "product": "serket"}
+
+    @app.get("/api/domain")
+    async def api_domain():
+        return data.get("domain", {})
+
+    @app.get("/api/stats")
+    async def api_stats():
+        return data.get("stats", {})
+
+    @app.get("/api/surface")
+    async def api_surface():
+        return data.get("surface", {})
+
+    @app.get("/api/paths")
+    async def api_paths():
+        return data.get("paths", [])
+
+    @app.get("/api/graph")
+    async def api_graph():
+        return _normalise_graph(data)
+
+    @app.get("/api/adcs")
+    async def api_adcs():
+        return data.get("adcs", {})
+
+    @app.get("/api/trusts")
+    async def api_trusts():
+        return data.get("trusts", [])
+
+    @app.get("/api/sid_name")
+    async def api_sid_name():
+        return data.get("sid_name", {})
+
+    @app.get("/api/meta")
+    async def api_meta():
+        return data.get("meta", {})
+
+    from serket.server.query import install_query_route
+
+    install_query_route(app, data)
+
+    from serket.server.search import install_search_routes
+
+    install_search_routes(app, data)
+    return app
+
+
+def run_server(data: dict, port: int = 8080) -> None:
+    """Start Serket Workbench locally or inside the official container."""
+    try:
+        import uvicorn
+    except ImportError as exc:
+        raise ImportError(
+            "FastAPI and uvicorn are required for --serve mode.\n"
+            "Install with:  pip install fastapi uvicorn"
+        ) from exc
+
+    app = create_app(data)
+    in_container = os.environ.get("SERKET_CONTAINER", "").strip() == "1"
+    no_browser = os.environ.get("SERKET_NO_BROWSER", "").strip() == "1"
+    bind_host = "0.0.0.0" if in_container else "127.0.0.1"
+    url = f"http://127.0.0.1:{port}"
+    if not no_browser and not in_container:
+        threading.Timer(0.9, lambda: webbrowser.open(url)).start()
+
+    print(
+        f"\n  Serket Workbench -> {url}\n"
+        "  Read-only session. Press Ctrl+C to stop.\n"
+    )
+
+    # Native runs bind to loopback. The container binds internally to all
+    # interfaces and must be published as 127.0.0.1:8080:8080 on the host.
+    uvicorn.run(app, host=bind_host, port=port, log_level="warning")

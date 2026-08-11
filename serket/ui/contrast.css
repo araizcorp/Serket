@@ -1,0 +1,34 @@
+/* High-contrast refinements for compact path and inspector text. */
+.flow-edge .edge-label {
+  border-color: rgba(255, 102, 112, .42);
+  background: #090d13;
+  color: #e8edf1;
+  text-shadow: 0 1px 0 #000;
+}
+.flow-edge .edge-activity { color: #aeb8c1; }
+.flow-edge:hover .edge-label,
+.flow-edge.selected .edge-label {
+  border-color: #ff6670;
+  background: #231116;
+  color: #fff2f3;
+}
+.flow-node .node-kind { color: #a7b1ba; }
+.flow-node .node-label { color: #f5f7f9; }
+.flow-node::after { color: #8e99a3; }
+.path-result > span:last-child,
+.quick-query > span:last-child { color: #9ca7b0; }
+.path-metric span { color: #9ca7b0; }
+.trace-strip > .overline { color: #9ca7b0; }
+.trace-chip span { color: #d1d7dc; }
+.language-switch { color: #aeb8c1; }
+
+@media (prefers-contrast: more) {
+  :root {
+    --line: rgba(203, 213, 221, .28);
+    --line-strong: rgba(220, 228, 234, .42);
+    --muted: #aeb8c1;
+  }
+  .flow-node,
+  .flow-edge .edge-label,
+  .path-result { border-width: 2px; }
+}

@@ -1,0 +1,163 @@
+/* The Serket Thread: identities on a relationship rail, without card boxes. */
+.path-flow { padding-top: 70px; padding-bottom: 76px; }
+.flow-track {
+  min-height: 210px;
+  align-items: center;
+  padding: 24px 0;
+}
+.flow-track::before { display: none; }
+
+button.flow-node {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 152px;
+  min-height: 176px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 16px 8px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+  text-align: center;
+}
+button.flow-node::before { display: none; }
+button.flow-node::after {
+  top: 17px;
+  right: 17px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(142, 153, 163, .3);
+  border-radius: 50%;
+  background: #0a0e14;
+  color: #aeb8c1;
+  font-size: 8px;
+}
+button.flow-node:first-child,
+button.flow-node:last-child { border: 0; box-shadow: none; }
+button.flow-node:hover,
+button.flow-node.selected {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: translateY(-4px);
+}
+
+.flow-node .node-icon {
+  position: relative;
+  width: 66px;
+  height: 66px;
+  flex: 0 0 auto;
+  border: 2px solid var(--node-color, var(--blue));
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--node-color) 13%, #0b1017), #0b1017 68%);
+  color: var(--node-color, var(--blue));
+  box-shadow:
+    0 0 0 7px color-mix(in srgb, var(--node-color) 5%, transparent),
+    0 14px 34px rgba(0, 0, 0, .38);
+  transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+}
+.flow-node .node-icon svg { width: 27px; height: 27px; }
+.flow-node:hover .node-icon,
+.flow-node.selected .node-icon {
+  transform: scale(1.07);
+  background:
+    radial-gradient(circle, color-mix(in srgb, var(--node-color) 20%, #0b1017), #0b1017 70%);
+  box-shadow:
+    0 0 0 9px color-mix(in srgb, var(--node-color) 9%, transparent),
+    0 0 28px color-mix(in srgb, var(--node-color) 22%, transparent),
+    0 16px 40px rgba(0, 0, 0, .42);
+}
+.flow-node:first-child .node-icon::after {
+  content: "START";
+  position: absolute;
+  left: 50%;
+  top: -28px;
+  transform: translateX(-50%);
+  color: #8fc8ff;
+  font: 700 7px var(--mono);
+  letter-spacing: .14em;
+}
+.flow-node:last-child .node-icon {
+  border-color: var(--gold);
+  color: var(--gold-soft);
+  box-shadow:
+    0 0 0 6px rgba(214, 174, 85, .07),
+    0 0 0 11px rgba(214, 174, 85, .025),
+    0 0 30px rgba(214, 174, 85, .12),
+    0 14px 34px rgba(0, 0, 0, .38);
+}
+.flow-node:last-child .node-icon::after {
+  content: "TIER 0";
+  position: absolute;
+  left: 50%;
+  top: -28px;
+  transform: translateX(-50%);
+  color: var(--gold-soft);
+  font: 700 7px var(--mono);
+  letter-spacing: .14em;
+  white-space: nowrap;
+}
+.flow-node .node-kind {
+  margin-top: 17px;
+  color: #a7b1ba;
+  font-size: 8px;
+  letter-spacing: .14em;
+}
+.flow-node .node-label {
+  max-width: 148px;
+  min-height: auto;
+  margin-top: 6px;
+  color: #f5f7f9;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.flow-node .node-flags {
+  justify-content: center;
+  min-height: 18px;
+  margin-top: 8px;
+}
+.flow-node .node-flag {
+  border: 1px solid rgba(214, 174, 85, .26);
+  border-radius: 999px;
+  background: rgba(214, 174, 85, .06);
+}
+button.flow-node:focus-visible .node-icon {
+  outline: 2px solid var(--gold);
+  outline-offset: 6px;
+}
+
+button.flow-edge {
+  width: 154px;
+  min-height: 176px;
+}
+.flow-edge .edge-line {
+  height: 2px;
+  background: linear-gradient(90deg, rgba(224, 68, 78, .2), #ff5964 55%, rgba(224, 68, 78, .72));
+}
+.flow-edge .edge-label {
+  top: 46px;
+  border-color: rgba(255, 102, 112, .46);
+  background: #0a0e14;
+  color: #edf1f4;
+}
+.flow-edge .edge-activity {
+  bottom: 44px;
+  color: #aeb8c1;
+}
+
+@media (max-width: 900px) {
+  .flow-track { min-height: 0; }
+  button.flow-node { width: 176px; min-height: 170px; }
+  button.flow-edge { width: 176px; min-height: 104px; height: 104px; }
+  .flow-edge .edge-label { top: 36px; }
+  .flow-edge .edge-activity { bottom: 35px; }
+}

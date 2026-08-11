@@ -1,0 +1,23 @@
+/* Normalize relationship buttons so browser defaults never create a gray block. */
+button.flow-edge {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: 0;
+  background: transparent;
+  box-shadow: none;
+}
+button.flow-edge:hover,
+button.flow-edge:active,
+button.flow-edge:focus {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+button.flow-edge:focus-visible .edge-label {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+}

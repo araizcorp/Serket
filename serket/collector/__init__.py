@@ -1,0 +1,1 @@
+"""Serket LDAP collection package."""

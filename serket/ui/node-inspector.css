@@ -1,0 +1,46 @@
+.inspector-tabs button { min-width: 0; padding-inline: 6px; }
+.node-relation-list { display: grid; gap: 7px; }
+.node-relation-row,
+.node-path-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0a0e14;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.node-relation-row:hover,
+.node-path-row:hover { border-color: rgba(214, 174, 85, .52); background: #101720; }
+.node-relation-type {
+  overflow: hidden;
+  color: var(--red-soft);
+  font: 700 8px var(--mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.node-relation-row strong,
+.node-relation-row small,
+.node-path-row strong,
+.node-path-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node-relation-row strong,
+.node-path-row strong { color: #edf1f4; font-size: 10px; }
+.node-relation-row small,
+.node-path-row small { margin-top: 2px; color: #9da8b1; font-size: 8px; }
+.node-relation-arrow { color: var(--gold-soft); font-size: 15px; }
+.node-relation-empty {
+  padding: 18px 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: #aeb8c1;
+  font-size: 10px;
+  text-align: center;
+}
+.node-path-summary { margin: 12px 0; color: #aeb8c1; font-size: 10px; }
+.node-path-summary strong { color: var(--gold-soft); }
+.node-path-row { grid-template-columns: minmax(0, 1fr) auto; }

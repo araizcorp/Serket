@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#07090d">
+  <title>Serket — Attack Path Intelligence</title>
+  <link rel="icon" href="/assets/assets/brand/favicon.ico" sizes="any">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/assets/brand/favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/assets/assets/brand/favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/assets/brand/apple-touch-icon.png">
+  <link rel="stylesheet" href="/assets/workbench.css">
+  <link rel="stylesheet" href="/assets/route-modern.css">
+  <link rel="stylesheet" href="/assets/contrast.css">
+  <link rel="stylesheet" href="/assets/route-fix.css">
+  <link rel="stylesheet" href="/assets/route-thread.css">
+  <link rel="stylesheet" href="/assets/inspector-controls.css">
+  <link rel="stylesheet" href="/assets/path-graph.css">
+  <link rel="stylesheet" href="/assets/path-graph-interactions.css">
+  <link rel="stylesheet" href="/assets/node-inspector.css">
+  <script src="/assets/workbench.js" defer></script>
+  <script src="/assets/query-runtime.js" defer></script>
+  <script src="/assets/search-runtime.js" defer></script>
+  <script src="/assets/path-graph.js" defer></script>
+  <script src="/assets/path-graph-interactions.js" defer></script>
+  <script src="/assets/node-inspector.js" defer></script>
+  <script src="/assets/i18n.js" defer></script>
+  <script src="/assets/inspector-controls.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Saltar al contenido</a>
+
+  <div class="app-shell" id="app-shell">
+    <header class="topbar">
+      <div class="topbar-brand">
+        <img src="/assets/assets/brand/serket-icon-512.png" alt="" width="42" height="42">
+        <div>
+          <strong>SERKET</strong>
+          <span>Attack paths, explained.</span>
+        </div>
+      </div>
+
+      <div class="engagement-context">
+        <span class="context-label">ENTORNO ACTIVO</span>
+        <div class="context-value">
+          <strong id="domain-name">Cargando dominio…</strong>
+          <span class="context-divider"></span>
+          <span id="collection-stamp">Colección local</span>
+        </div>
+      </div>
+
+      <div class="universal-search" id="universal-search">
+        <span class="search-icon" aria-hidden="true"></span>
+        <input id="global-search" type="search" placeholder="Buscar identidad, SID, equipo o grupo" autocomplete="off" aria-label="Buscar objetos del directorio">
+        <kbd>/</kbd>
+        <div class="search-results" id="search-results" hidden></div>
+      </div>
+
+      <div class="topbar-actions">
+        <span class="local-status"><i></i> LOCAL</span>
+        <button class="quiet-button" id="help-button" type="button" aria-label="Ver ayuda y atajos">?</button>
+      </div>
+    </header>
+
+    <nav class="primary-nav" aria-label="Navegación principal">
+      <button class="nav-item active" type="button" data-view="overview" aria-label="Resumen">
+        <span class="nav-icon">OV</span><span>Resumen</span>
+      </button>
+      <button class="nav-item" type="button" data-view="paths" aria-label="Rutas">
+        <span class="nav-icon">PA</span><span>Rutas</span>
+      </button>
+      <button class="nav-item" type="button" data-view="explorer" aria-label="Explorador">
+        <span class="nav-icon">EX</span><span>Explorar</span>
+      </button>
+      <button class="nav-item" type="button" data-view="exposure" aria-label="Exposición">
+        <span class="nav-icon">SR</span><span>Superficie</span>
+      </button>
+      <button class="nav-item" type="button" data-view="detection" aria-label="Detección">
+        <span class="nav-icon">DT</span><span>Detección</span>
+      </button>
+
+      <div class="nav-spacer"></div>
+      <button class="nav-item" id="legal-button" type="button" aria-label="Aviso legal">
+        <span class="nav-icon">LG</span><span>Legal</span>
+      </button>
+      <div class="nav-owner">ARAIZCORP<br>2026</div>
+    </nav>
+
+    <aside class="context-panel" aria-label="Controles de la vista">
+      <header class="context-header">
+        <span class="overline" id="context-eyebrow">WORKSPACE</span>
+        <h2 id="context-title">Resumen del dominio</h2>
+        <p id="context-description">Lectura local del resultado cargado.</p>
+      </header>
+      <div class="context-body" id="context-body">
+        <div class="skeleton skeleton-block"></div>
+        <div class="skeleton skeleton-row"></div>
+        <div class="skeleton skeleton-row"></div>
+      </div>
+      <footer class="context-footer">
+        <span><i></i> Datos procesados en localhost</span>
+      </footer>
+    </aside>
+
+    <main class="workspace" id="workspace">
+      <section class="view active" id="overview-view" data-view-panel="overview" aria-labelledby="overview-title">
+        <header class="view-header overview-heading">
+          <div>
+            <span class="overline">DIRECTORY POSTURE</span>
+            <h1 id="overview-title">Lo importante, antes que el grafo</h1>
+            <p>Identidades expuestas, rutas priorizadas y señales disponibles en esta colección.</p>
+          </div>
+          <button class="primary-button" type="button" data-open-view="paths">Consultar rutas</button>
+        </header>
+
+        <div class="overview-scroll">
+          <section class="metric-grid" id="overview-metrics" aria-label="Métricas principales"></section>
+
+          <div class="dashboard-grid">
+            <article class="panel panel-wide">
+              <header class="panel-header">
+                <div><span class="overline">RUTAS PRIORITARIAS</span><h2>Acceso hacia Tier 0</h2></div>
+                <button class="text-button" type="button" data-open-view="paths">Ver todas</button>
+              </header>
+              <div class="priority-list" id="overview-paths"></div>
+            </article>
+
+            <article class="panel">
+              <header class="panel-header">
+                <div><span class="overline">SUPERFICIE</span><h2>Hallazgos por categoría</h2></div>
+              </header>
+              <div class="surface-summary" id="surface-summary"></div>
+            </article>
+
+            <article class="panel">
+              <header class="panel-header">
+                <div><span class="overline">COLECCIÓN</span><h2>Huella registrada</h2></div>
+              </header>
+              <div class="collection-summary" id="collection-summary"></div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="paths-view" data-view-panel="paths" aria-labelledby="path-title">
+        <header class="view-header path-heading">
+          <div>
+            <span class="overline">RUTA SELECCIONADA</span>
+            <h1 id="path-title">Selecciona una consulta</h1>
+            <p id="path-subtitle">Serket muestra rutas precalculadas contenidas en esta colección.</p>
+          </div>
+          <div class="path-metrics" id="path-metrics"></div>
+        </header>
+        <div class="path-canvas">
+          <div class="canvas-grid" aria-hidden="true"></div>
+          <div class="path-flow" id="path-flow">
+            <div class="empty-state">
+              <span class="empty-mark">S</span>
+              <strong>No hay una ruta seleccionada</strong>
+              <p>Utiliza el constructor situado a la izquierda para elegir un origen y un objetivo.</p>
+            </div>
+          </div>
+        </div>
+        <footer class="trace-strip">
+          <span class="overline">TRAZA MITRE</span>
+          <div class="trace-items" id="mitre-timeline"><span class="muted">Sin técnicas asociadas</span></div>
+        </footer>
+      </section>
+
+      <section class="view" id="explorer-view" data-view-panel="explorer" aria-labelledby="explorer-title">
+        <header class="view-header">
+          <div>
+            <span class="overline">SUBGRAPH EXPLORER</span>
+            <h1 id="explorer-title">Relaciones relevantes</h1>
+            <p id="explorer-subtitle">Se carga un subgrafo limitado y verificable; no todo el dominio a la vez.</p>
+          </div>
+          <div class="graph-toolbar">
+            <span class="graph-count" id="graph-count">0 objetos</span>
+            <button type="button" id="zoom-out" aria-label="Alejar">−</button>
+            <button type="button" id="zoom-reset">Centrar</button>
+            <button type="button" id="zoom-in" aria-label="Acercar">+</button>
+          </div>
+        </header>
+        <div class="graph-stage" id="graph-stage">
+          <svg id="graph-canvas" viewBox="0 0 1280 760" role="img" aria-label="Mapa de relaciones de Active Directory">
+            <defs>
+              <marker id="edge-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 8 4 0 8Z"></path></marker>
+              <filter id="selected-glow"><feGaussianBlur stdDeviation="4" result="blur"></feGaussianBlur><feMerge><feMergeNode in="blur"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter>
+            </defs>
+            <g id="graph-viewport"></g>
+          </svg>
+          <div class="graph-empty" id="graph-empty">Esta colección no contiene un grafo serializado.</div>
+          <div class="graph-legend">
+            <span><i class="legend-dot user"></i>Usuario</span>
+            <span><i class="legend-dot group"></i>Grupo</span>
+            <span><i class="legend-dot computer"></i>Equipo</span>
+            <span><i class="legend-dot high-value"></i>Tier 0</span>
+            <span><i class="legend-line selected"></i>Ruta activa</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" id="exposure-view" data-view-panel="exposure" aria-labelledby="exposure-title">
+        <header class="view-header">
+          <div>
+            <span class="overline">ATTACK SURFACE</span>
+            <h1 id="exposure-title">Superficie observada</h1>
+            <p>Resumen de configuraciones y relaciones presentes en el resultado, sin afirmar explotación.</p>
+          </div>
+        </header>
+        <div class="exposure-scroll">
+          <div class="exposure-grid" id="exposure-grid"></div>
+        </div>
+      </section>
+
+      <section class="view" id="detection-view" data-view-panel="detection" aria-labelledby="detection-title">
+        <header class="view-header">
+          <div>
+            <span class="overline">OBSERVABILITY</span>
+            <h1 id="detection-title">Telemetría y cobertura</h1>
+            <p>Señales esperadas y actividad registrada. “Desconocido” se mantiene hasta aportar evidencia.</p>
+          </div>
+          <span class="profile-badge" id="collection-profile">PERFIL NO REGISTRADO</span>
+        </header>
+        <div class="detection-scroll">
+          <section class="telemetry-grid" id="telemetry-grid"></section>
+          <div class="detection-grid">
+            <article class="panel">
+              <header class="panel-header"><div><span class="overline">ACTIVIDAD</span><h2>Etapas de colección</h2></div></header>
+              <div class="stage-table" id="stage-table"></div>
+            </article>
+            <article class="panel">
+              <header class="panel-header"><div><span class="overline">CATÁLOGO</span><h2>Relaciones presentes</h2></div></header>
+              <div class="coverage-list" id="coverage-list"></div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <aside class="inspector" id="inspector" aria-label="Inspector de evidencia">
+      <header class="inspector-header">
+        <div>
+          <span class="overline">INSPECTOR</span>
+          <h2 id="inspector-title">Contexto</h2>
+        </div>
+        <span class="inspector-code" id="inspector-code">—</span>
+      </header>
+      <nav class="inspector-tabs" aria-label="Detalles del hallazgo">
+        <button class="active" type="button" data-inspector-tab="evidence">Evidencia</button>
+        <button type="button" data-inspector-tab="impact">Impacto</button>
+        <button type="button" data-inspector-tab="validation">Validación</button>
+        <button type="button" data-inspector-tab="telemetry">Telemetría</button>
+        <button type="button" data-inspector-tab="remediation">Corrección</button>
+      </nav>
+      <div class="inspector-body" id="inspector-body">
+        <div class="inspector-empty">
+          <span>+</span>
+          <strong>Nada seleccionado</strong>
+          <p>Selecciona una identidad, un nodo o una relación para revisar la evidencia disponible.</p>
+        </div>
+      </div>
+      <footer class="inspector-footer">
+        <i></i><span>Sin ejecución remota desde la interfaz</span>
+      </footer>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="modal-backdrop open" id="legal-modal">
+    <section class="legal-modal" role="dialog" aria-modal="true" aria-labelledby="legal-title">
+      <img class="legal-logo" src="/assets/assets/brand/serket-logo-primary-red-v3.png" alt="SERKET — Attack Path Mapping">
+      <span class="overline">ARAIZCORP SECURITY RESEARCH</span>
+      <h2 id="legal-title">Uso profesional autorizado</h2>
+      <p>Serket analiza relaciones de Active Directory y puede utilizarse en auditorías, validaciones defensivas y ejercicios autorizados. Su capacidad es de doble uso y exige alcance y autorización escritos.</p>
+      <div class="legal-grid">
+        <div><strong>Responsabilidad</strong><span>La persona operadora verifica objetivo, horario, credenciales y reglas de enfrentamiento.</span></div>
+        <div><strong>Datos sensibles</strong><span>Los resultados contienen información confidencial del directorio y deben protegerse como evidencia.</span></div>
+        <div><strong>Sin autorización implícita</strong><span>AraizCorp LLC no autoriza usos ilegales, no consentidos o fuera de alcance.</span></div>
+        <div><strong>Propiedad</strong><span>Serket, su nombre e identidad visual son propiedad de AraizCorp LLC.</span></div>
+      </div>
+      <label class="legal-check">
+        <input type="checkbox" id="legal-accept">
+        <span>Confirmo que dispongo de autorización escrita y asumo la responsabilidad sobre el uso de la herramienta y los datos obtenidos.</span>
+      </label>
+      <button class="primary-button full" id="legal-continue" type="button" disabled>Entrar en Serket</button>
+      <button class="text-button legal-link" id="legal-full" type="button">Consultar aviso legal completo</button>
+    </section>
+  </div>
+
+  <div class="modal-backdrop" id="help-modal">
+    <section class="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <header><div><span class="overline">AYUDA RÁPIDA</span><h2 id="help-title">Navegación</h2></div><button class="quiet-button" id="help-close" type="button" aria-label="Cerrar">×</button></header>
+      <div class="shortcut-grid">
+        <kbd>/</kbd><span>Buscar cualquier objeto cargado</span>
+        <kbd>1–5</kbd><span>Cambiar de vista</span>
+        <kbd>J / K</kbd><span>Cambiar entre rutas visibles</span>
+        <kbd>0</kbd><span>Recentrar el explorador</span>
+        <kbd>Esc</kbd><span>Cerrar resultados o diálogo</span>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

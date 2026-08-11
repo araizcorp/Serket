@@ -1,0 +1,29 @@
+name: serket
+
+services:
+  workbench:
+    image: ghcr.io/araizcorp/serket:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: serket-workbench
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      SERKET_CONTAINER: "1"
+      SERKET_NO_BROWSER: "1"
+    volumes:
+      - type: bind
+        source: ./results
+        target: /data
+        read_only: true
+    command: ["--serve", "/app/demo/serket-demo.json", "--port", "8080", "--quiet"]
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

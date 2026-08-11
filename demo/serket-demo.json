@@ -1,0 +1,176 @@
+{
+  "meta": {
+    "tool": "Serket",
+    "version": "2.0.0",
+    "vendor": "AraizCorp LLC",
+    "generated": "2026-08-11T22:30:00+02:00",
+    "domain": "LAB.SERKET.LOCAL",
+    "dataset": "Synthetic demonstration data — no real identities or systems",
+    "collection": {
+      "profile": "controlled",
+      "transport": "LDAPS",
+      "started_at": "2026-08-11T22:29:10+02:00",
+      "duration_ms": 38740,
+      "searches": 34,
+      "pages": 19,
+      "entries": 1268,
+      "rate_per_second": 0.88,
+      "stages": {
+        "rootdse": {"searches": 1, "pages": 1, "entries": 1, "duration_ms": 214},
+        "domain": {"searches": 3, "pages": 2, "entries": 3, "duration_ms": 641},
+        "principals": {"searches": 12, "pages": 8, "entries": 1064, "duration_ms": 16831},
+        "acls": {"searches": 10, "pages": 4, "entries": 128, "duration_ms": 13982},
+        "adcs": {"searches": 6, "pages": 3, "entries": 54, "duration_ms": 5436},
+        "trusts": {"searches": 2, "pages": 1, "entries": 18, "duration_ms": 1636}
+      }
+    }
+  },
+  "domain": {
+    "name": "LAB.SERKET.LOCAL",
+    "sid": "S-1-5-21-42424242-51515151-61616161",
+    "dn": "DC=LAB,DC=SERKET,DC=LOCAL",
+    "maq": 10,
+    "lockout_threshold": 5
+  },
+  "stats": {
+    "nodes": 13,
+    "edges": 15,
+    "users": 4,
+    "groups": 4,
+    "computers": 2,
+    "high_value": 4
+  },
+  "high_value": [
+    "S-1-5-21-42424242-51515151-61616161-512",
+    "S-1-5-21-42424242-51515151-61616161-1000",
+    "S-1-5-21-42424242-51515151-61616161",
+    "CERTTEMPLATE:AUTH-USER"
+  ],
+  "graph": {
+    "directed": true,
+    "multigraph": false,
+    "graph": {},
+    "nodes": [
+      {"id": "S-1-5-21-42424242-51515151-61616161", "name": "LAB.SERKET.LOCAL", "type": "Domain", "high_value": true},
+      {"id": "S-1-5-21-42424242-51515151-61616161-1101", "name": "aria.rios", "type": "User", "upn": "aria.rios@lab.serket.local", "enabled": true},
+      {"id": "S-1-5-21-42424242-51515151-61616161-1102", "name": "leo.helpdesk", "type": "User", "upn": "leo.helpdesk@lab.serket.local", "enabled": true},
+      {"id": "S-1-5-21-42424242-51515151-61616161-1103", "name": "svc.backup", "type": "User", "upn": "svc.backup@lab.serket.local", "enabled": true, "spns": ["MSSQLSvc/backup.lab.serket.local:1433"], "admin_count": 1},
+      {"id": "S-1-5-21-42424242-51515151-61616161-1104", "name": "svc.legacy", "type": "User", "upn": "svc.legacy@lab.serket.local", "enabled": true, "asrep": true},
+      {"id": "S-1-5-21-42424242-51515151-61616161-2101", "name": "Helpdesk Tier 1", "type": "Group"},
+      {"id": "S-1-5-21-42424242-51515151-61616161-2102", "name": "Server Operators", "type": "Group"},
+      {"id": "S-1-5-21-42424242-51515151-61616161-512", "name": "Domain Admins", "type": "Group", "high_value": true},
+      {"id": "S-1-5-21-42424242-51515151-61616161-513", "name": "Domain Users", "type": "Group"},
+      {"id": "S-1-5-21-42424242-51515151-61616161-1000", "name": "DC01.LAB.SERKET.LOCAL", "type": "Computer", "dns": "dc01.lab.serket.local", "is_dc": true, "high_value": true},
+      {"id": "S-1-5-21-42424242-51515151-61616161-1001", "name": "APP01.LAB.SERKET.LOCAL", "type": "Computer", "dns": "app01.lab.serket.local", "laps_readable": true},
+      {"id": "CERTTEMPLATE:AUTH-USER", "name": "Auth-User", "type": "CertTemplate", "esc1": true, "high_value": true},
+      {"id": "CA:LAB-ISSUING-CA", "name": "LAB Issuing CA", "type": "CA"}
+    ],
+    "edges": [
+      {"source": "S-1-5-21-42424242-51515151-61616161-1101", "target": "S-1-5-21-42424242-51515151-61616161-2101", "type": "MemberOf", "noise": "silent", "opsec_score": 1, "detail": "Direct group membership", "mitre": null},
+      {"source": "S-1-5-21-42424242-51515151-61616161-2101", "target": "S-1-5-21-42424242-51515151-61616161-2102", "type": "GenericWrite", "noise": "low", "opsec_score": 3, "detail": "Write-property permission on group object", "mitre": {"id": "T1098", "name": "Account Manipulation"}},
+      {"source": "S-1-5-21-42424242-51515151-61616161-2102", "target": "S-1-5-21-42424242-51515151-61616161-1000", "type": "RBCD", "noise": "medium", "opsec_score": 4, "detail": "Allowed-to-act relationship on DC01", "mitre": {"id": "T1134", "name": "Access Token Manipulation"}},
+      {"source": "S-1-5-21-42424242-51515151-61616161-1102", "target": "S-1-5-21-42424242-51515151-61616161-512", "type": "WriteDACL", "noise": "medium", "opsec_score": 4, "detail": "Write permissions on the group DACL", "mitre": {"id": "T1222", "name": "File and Directory Permissions Modification"}},
+      {"source": "S-1-5-21-42424242-51515151-61616161-1103", "target": "S-1-5-21-42424242-51515151-61616161", "type": "DCSync", "noise": "high", "opsec_score": 5, "detail": "Replication extended rights on the domain root", "mitre": {"id": "T1003.006", "name": "DCSync"}},
+      {"source": "S-1-5-21-42424242-51515151-61616161-513", "target": "CERTTEMPLATE:AUTH-USER", "type": "ADCS_ESC1", "noise": "medium", "opsec_score": 4, "detail": "Enrollment allowed and enrollee supplies subject", "mitre": {"id": "T1649", "name": "Steal or Forge Authentication Certificates"}},
+      {"source": "S-1-5-21-42424242-51515151-61616161-1101", "target": "S-1-5-21-42424242-51515151-61616161-513", "type": "MemberOf", "noise": "silent", "opsec_score": 1, "detail": "Primary domain group", "mitre": null},
+      {"source": "S-1-5-21-42424242-51515151-61616161-1102", "target": "S-1-5-21-42424242-51515151-61616161-513", "type": "MemberOf", "noise": "silent", "opsec_score": 1, "detail": "Primary domain group", "mitre": null},
+      {"source": "S-1-5-21-42424242-51515151-61616161-1103", "target": "S-1-5-21-42424242-51515151-61616161-513", "type": "MemberOf", "noise": "silent", "opsec_score": 1, "detail": "Primary domain group", "mitre": null},
+      {"source": "S-1-5-21-42424242-51515151-61616161-1104", "target": "S-1-5-21-42424242-51515151-61616161-513", "type": "MemberOf", "noise": "silent", "opsec_score": 1, "detail": "Primary domain group", "mitre": null},
+      {"source": "S-1-5-21-42424242-51515151-61616161-1103", "target": "S-1-5-21-42424242-51515151-61616161-1103", "type": "Kerberoastable", "noise": "low", "opsec_score": 2, "detail": "Service principal name present", "mitre": {"id": "T1558.003", "name": "Kerberoasting"}},
+      {"source": "S-1-5-21-42424242-51515151-61616161-1104", "target": "S-1-5-21-42424242-51515151-61616161-1104", "type": "ASREPRoastable", "noise": "low", "opsec_score": 2, "detail": "Kerberos pre-authentication disabled", "mitre": {"id": "T1558.004", "name": "AS-REP Roasting"}},
+      {"source": "S-1-5-21-42424242-51515151-61616161-2101", "target": "S-1-5-21-42424242-51515151-61616161-1001", "type": "GenericAll", "noise": "medium", "opsec_score": 4, "detail": "Full control over APP01 computer object", "mitre": {"id": "T1098", "name": "Account Manipulation"}},
+      {"source": "S-1-5-21-42424242-51515151-61616161-1001", "target": "S-1-5-21-42424242-51515151-61616161-1000", "type": "ConstrainedDelegation", "noise": "medium", "opsec_score": 4, "detail": "Delegation configured toward a service on DC01", "mitre": {"id": "T1558", "name": "Steal or Forge Kerberos Tickets"}},
+      {"source": "CERTTEMPLATE:AUTH-USER", "target": "CA:LAB-ISSUING-CA", "type": "PublishedBy", "noise": "silent", "opsec_score": 1, "detail": "Template is published by the issuing CA", "mitre": null}
+    ]
+  },
+  "paths": [
+    {
+      "src": "S-1-5-21-42424242-51515151-61616161-1101",
+      "src_name": "aria.rios",
+      "src_type": "User",
+      "target": "S-1-5-21-42424242-51515151-61616161-1000",
+      "target_name": "DC01.LAB.SERKET.LOCAL",
+      "hops": 3,
+      "cost": 8,
+      "noise": 4,
+      "steps": [
+        {"src": "S-1-5-21-42424242-51515151-61616161-1101", "src_name": "aria.rios", "src_type": "User", "tgt": "S-1-5-21-42424242-51515151-61616161-2101", "tgt_name": "Helpdesk Tier 1", "tgt_type": "Group", "edge_type": "MemberOf", "noise": "silent", "opsec": 1, "detail": "Direct group membership", "mitre": null, "commands": []},
+        {"src": "S-1-5-21-42424242-51515151-61616161-2101", "src_name": "Helpdesk Tier 1", "src_type": "Group", "tgt": "S-1-5-21-42424242-51515151-61616161-2102", "tgt_name": "Server Operators", "tgt_type": "Group", "edge_type": "GenericWrite", "noise": "low", "opsec": 3, "detail": "Write-property permission on group object", "mitre": {"id": "T1098", "name": "Account Manipulation"}, "commands": []},
+        {"src": "S-1-5-21-42424242-51515151-61616161-2102", "src_name": "Server Operators", "src_type": "Group", "tgt": "S-1-5-21-42424242-51515151-61616161-1000", "tgt_name": "DC01.LAB.SERKET.LOCAL", "tgt_type": "Computer", "edge_type": "RBCD", "noise": "medium", "opsec": 4, "detail": "Allowed-to-act relationship on DC01", "mitre": {"id": "T1134", "name": "Access Token Manipulation"}, "commands": []}
+      ]
+    },
+    {
+      "src": "S-1-5-21-42424242-51515151-61616161-1102",
+      "src_name": "leo.helpdesk",
+      "src_type": "User",
+      "target": "S-1-5-21-42424242-51515151-61616161-512",
+      "target_name": "Domain Admins",
+      "hops": 1,
+      "cost": 4,
+      "noise": 4,
+      "steps": [
+        {"src": "S-1-5-21-42424242-51515151-61616161-1102", "src_name": "leo.helpdesk", "src_type": "User", "tgt": "S-1-5-21-42424242-51515151-61616161-512", "tgt_name": "Domain Admins", "tgt_type": "Group", "edge_type": "WriteDACL", "noise": "medium", "opsec": 4, "detail": "Write permissions on the group DACL", "mitre": {"id": "T1222", "name": "File and Directory Permissions Modification"}, "commands": []}
+      ]
+    },
+    {
+      "src": "S-1-5-21-42424242-51515151-61616161-1103",
+      "src_name": "svc.backup",
+      "src_type": "User",
+      "target": "S-1-5-21-42424242-51515151-61616161",
+      "target_name": "LAB.SERKET.LOCAL",
+      "hops": 1,
+      "cost": 5,
+      "noise": 5,
+      "steps": [
+        {"src": "S-1-5-21-42424242-51515151-61616161-1103", "src_name": "svc.backup", "src_type": "User", "tgt": "S-1-5-21-42424242-51515151-61616161", "tgt_name": "LAB.SERKET.LOCAL", "tgt_type": "Domain", "edge_type": "DCSync", "noise": "high", "opsec": 5, "detail": "Replication extended rights on the domain root", "mitre": {"id": "T1003.006", "name": "DCSync"}, "commands": []}
+      ]
+    },
+    {
+      "src": "S-1-5-21-42424242-51515151-61616161-513",
+      "src_name": "Domain Users",
+      "src_type": "Group",
+      "target": "CERTTEMPLATE:AUTH-USER",
+      "target_name": "Auth-User",
+      "hops": 1,
+      "cost": 4,
+      "noise": 4,
+      "steps": [
+        {"src": "S-1-5-21-42424242-51515151-61616161-513", "src_name": "Domain Users", "src_type": "Group", "tgt": "CERTTEMPLATE:AUTH-USER", "tgt_name": "Auth-User", "tgt_type": "CertTemplate", "edge_type": "ADCS_ESC1", "noise": "medium", "opsec": 4, "detail": "Enrollment allowed and enrollee supplies subject", "mitre": {"id": "T1649", "name": "Steal or Forge Authentication Certificates"}, "commands": []}
+      ]
+    }
+  ],
+  "surface": {
+    "kerberoastable": [{"sid": "S-1-5-21-42424242-51515151-61616161-1103", "name": "svc.backup", "spns": ["MSSQLSvc/backup.lab.serket.local:1433"], "admin_count": 1}],
+    "asreproastable": [{"sid": "S-1-5-21-42424242-51515151-61616161-1104", "name": "svc.legacy"}],
+    "unconstrained": [],
+    "constrained": [{"name": "APP01.LAB.SERKET.LOCAL", "target": "DC01.LAB.SERKET.LOCAL"}],
+    "rbcd": [{"trustee": "Server Operators", "target": "DC01.LAB.SERKET.LOCAL"}],
+    "dcsync": [{"sid": "S-1-5-21-42424242-51515151-61616161-1103", "name": "svc.backup", "target": "LAB.SERKET.LOCAL"}],
+    "acl_abuse": [
+      {"sid": "S-1-5-21-42424242-51515151-61616161-1102", "name": "leo.helpdesk", "target_sid": "S-1-5-21-42424242-51515151-61616161-512", "target_name": "Domain Admins", "edge": "WriteDACL", "target_high_value": true},
+      {"sid": "S-1-5-21-42424242-51515151-61616161-2101", "name": "Helpdesk Tier 1", "target_sid": "S-1-5-21-42424242-51515151-61616161-2102", "target_name": "Server Operators", "edge": "GenericWrite", "target_high_value": false}
+    ],
+    "adcs_esc1": [{"enroller": "Domain Users", "template": "Auth-User"}],
+    "sid_history": [],
+    "password_in_desc": [],
+    "laps_readable": [{"sid": "S-1-5-21-42424242-51515151-61616161-1001", "name": "APP01.LAB.SERKET.LOCAL", "dns": "app01.lab.serket.local"}],
+    "gmsa_accounts": [],
+    "trusts": [{"name": "PARTNER.SERKET.LOCAL", "direction": "bidirectional", "type": "external", "attributes": 4}],
+    "domain_maq": 10,
+    "lockout_threshold": 5
+  },
+  "adcs": {
+    "cas": [{"name": "LAB Issuing CA", "dns": "ca01.lab.serket.local", "templates": ["Auth-User"]}],
+    "templates": [{"name": "Auth-User", "esc1": true, "enrollee_supplies_subject": true, "client_auth": true, "manager_approval": false, "authorized_signatures": 0}]
+  },
+  "trusts": [
+    {"name": "PARTNER.SERKET.LOCAL", "direction": "bidirectional", "type": "external", "attributes": 4, "analysis": "Requires manual SID-filtering and quarantine validation"}
+  ],
+  "sid_name": {
+    "S-1-5-21-42424242-51515151-61616161-1101": "aria.rios",
+    "S-1-5-21-42424242-51515151-61616161-1102": "leo.helpdesk",
+    "S-1-5-21-42424242-51515151-61616161-1103": "svc.backup",
+    "S-1-5-21-42424242-51515151-61616161-512": "Domain Admins",
+    "S-1-5-21-42424242-51515151-61616161-1000": "DC01.LAB.SERKET.LOCAL"
+  }
+}

@@ -1,0 +1,140 @@
+.path-flow:has(.route-graph-shell) {
+  align-items: center;
+  justify-content: center;
+  padding: 24px 36px;
+}
+.route-graph-shell {
+  min-width: 720px;
+  height: min(100%, 560px);
+  min-height: 440px;
+}
+.route-graph { width: 100%; height: 100%; overflow: visible; }
+
+.route-edge-line {
+  fill: none;
+  stroke: #e6535d;
+  stroke-width: 2;
+  opacity: .82;
+  transition: stroke-width .16s ease, opacity .16s ease, filter .16s ease;
+}
+.route-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 24;
+  cursor: pointer;
+}
+#route-arrow path { fill: #e6535d; }
+.route-edge { cursor: pointer; }
+.route-edge-label rect {
+  fill: #090d13;
+  stroke: rgba(255, 102, 112, .62);
+  stroke-width: 1;
+}
+.route-edge-label text {
+  fill: #f2f5f7;
+  font: 700 9px var(--mono);
+  text-anchor: middle;
+  pointer-events: none;
+}
+.route-activity circle { fill: #aeb8c1; }
+.route-activity text {
+  fill: #aeb8c1;
+  font: 8px var(--mono);
+  text-anchor: start;
+  letter-spacing: .04em;
+  pointer-events: none;
+}
+.route-edge:hover .route-edge-line,
+.route-edge.selected .route-edge-line {
+  stroke: #ff6670;
+  stroke-width: 3;
+  opacity: 1;
+  filter: url(#route-glow);
+}
+.route-edge:hover .route-edge-label rect,
+.route-edge.selected .route-edge-label rect {
+  fill: #241116;
+  stroke: #ff6670;
+  stroke-width: 1.5;
+}
+.route-edge:focus-visible { outline: none; }
+.route-edge:focus-visible .route-edge-label rect { stroke: var(--gold); stroke-width: 2; }
+
+.route-node { cursor: pointer; --route-node-color: var(--blue); }
+.route-node-halo {
+  fill: color-mix(in srgb, var(--route-node-color) 4%, transparent);
+  stroke: color-mix(in srgb, var(--route-node-color) 24%, transparent);
+  stroke-width: 1;
+  transition: fill .16s ease, stroke .16s ease, transform .16s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.route-node-body {
+  fill: #0d131c;
+  stroke: var(--route-node-color);
+  stroke-width: 2;
+  transition: fill .16s ease, stroke-width .16s ease, filter .16s ease, transform .16s ease;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.route-node-glyph {
+  fill: var(--route-node-color);
+  font: 800 10px var(--mono);
+  text-anchor: middle;
+  pointer-events: none;
+}
+.route-node-sequence {
+  fill: #9ba6af;
+  font: 800 8px var(--mono);
+  text-anchor: middle;
+  pointer-events: none;
+}
+.route-node-type {
+  fill: #9facb6;
+  font: 700 8px var(--mono);
+  letter-spacing: .12em;
+  text-anchor: middle;
+  pointer-events: none;
+}
+.route-node-name {
+  fill: #f4f6f8;
+  font: 750 12px var(--sans);
+  text-anchor: middle;
+  pointer-events: none;
+}
+.route-node-flags {
+  fill: var(--gold-soft);
+  font: 700 7px var(--mono);
+  text-anchor: middle;
+  letter-spacing: .06em;
+  pointer-events: none;
+}
+.route-node:hover .route-node-body,
+.route-node.selected .route-node-body {
+  fill: color-mix(in srgb, var(--route-node-color) 10%, #0d131c);
+  stroke-width: 3;
+  filter: url(#route-glow);
+  transform: scale(1.06);
+}
+.route-node:hover .route-node-halo,
+.route-node.selected .route-node-halo {
+  fill: color-mix(in srgb, var(--route-node-color) 9%, transparent);
+  stroke: color-mix(in srgb, var(--route-node-color) 52%, transparent);
+  transform: scale(1.08);
+}
+.route-node:focus-visible { outline: none; }
+.route-node:focus-visible .route-node-halo { stroke: var(--gold); stroke-width: 2; }
+.route-node.high-value .route-node-body { fill: #16140f; }
+
+.route-tier-badge rect { fill: #16140f; stroke: rgba(214, 174, 85, .72); }
+.route-tier-badge text {
+  fill: var(--gold-soft);
+  font: 800 7px var(--mono);
+  text-anchor: middle;
+  letter-spacing: .12em;
+}
+
+@media (max-width: 900px) {
+  .path-flow:has(.route-graph-shell) { justify-content: flex-start; padding-inline: 18px; }
+  .route-graph-shell { min-height: 390px; }
+}

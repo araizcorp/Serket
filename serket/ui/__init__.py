@@ -1,0 +1,1 @@
+"""Serket Workbench frontend package."""
