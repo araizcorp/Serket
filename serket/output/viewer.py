@@ -100,12 +100,16 @@ def show_collection_summary(ad_data: dict, graph_stats: dict) -> None:
     obj_tbl.add_column("In Graph",     style="dim white",    justify="right")
 
     by_type = graph_stats.get("by_type", {})
+    systems = ad_data.get("system_counts", {})
     rows = [
         ("Users",         len(ad_data.get("users", {})),     by_type.get("User", 0)),
         ("Groups",        len(ad_data.get("groups", {})),    by_type.get("Group", 0)),
-        ("Computers",     len(ad_data.get("computers", {})), by_type.get("Computer", 0)),
+        ("Workstations",  systems.get("workstation", 0),     by_type.get("Workstation", 0)),
+        ("Servers",       systems.get("server", 0),          by_type.get("Server", 0)),
+        ("Domain Controllers", systems.get("domain_controller", 0), by_type.get("DomainController", 0)),
+        ("OUs / Containers", len(ad_data.get("directory_objects", {})), by_type.get("OU", 0) + by_type.get("Container", 0)),
         ("ADCS Templates",len(ad_data.get("adcs", {}).get("templates", [])), by_type.get("CertTemplate", 0)),
-        ("GPOs",          len(ad_data.get("gpos", [])),      "-"),
+        ("GPOs",          len(ad_data.get("gpos", [])),      by_type.get("GPO", 0)),
         ("Trusts",        len(ad_data.get("trusts", [])),    "-"),
     ]
     for label, count, in_graph in rows:
@@ -116,6 +120,13 @@ def show_collection_summary(ad_data: dict, graph_stats: dict) -> None:
         f"  [dim white]Graph:[/] [bold white]{graph_stats['nodes']}[/] nodes  "
         f"[bold white]{graph_stats['edges']}[/] edges  "
         f"[bold yellow]{graph_stats['high_value']}[/] high-value targets\n"
+    )
+    quality = ad_data.get("quality", {})
+    console.print(
+        f"  [dim white]Data quality:[/] [bold]{quality.get('status', 'unknown')}[/]  "
+        f"[dim]canonical SIDs {quality.get('canonical_sids', 0)}/"
+        f"{quality.get('identity_objects', 0)} · "
+        f"ACL relationships {quality.get('acl_relationships', 0)}[/]\n"
     )
 
 

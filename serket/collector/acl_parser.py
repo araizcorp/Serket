@@ -51,9 +51,11 @@ EXT_RIGHT = {
 # Property write GUIDs (ADS_RIGHT_DS_WRITE_PROP on specific property)
 PROP_GUID = {
     "bf9679c0-0de6-11d0-a285-00aa003049e2": "member",             # AddMember
-    "5b47d60f-6090-40b2-9f37-2a4de88f3063": "msDS-KeyCredentialLink",  # Shadow Creds
+    "5b47d60f-6090-40b2-9f37-2a4de88f3063": "msDS-KeyCredentialLink",
     "3f78c3e5-f79a-46bd-a0b8-9d18116ddc79": "msDS-AllowedToActOnBehalfOfOtherIdentity",  # RBCD
     "bf967a68-0de6-11d0-a285-00aa003049e2": "userAccountControl",
+    "f3a64788-5306-11d1-a9c5-0000f80367c1": "servicePrincipalName",
+    "800d94d7-b7a1-42a1-b14d-7cae1423d07f": "msDS-AllowedToDelegateTo",
 }
 
 # MITRE ATT&CK mapping per edge type
@@ -65,9 +67,13 @@ MITRE = {
     "AllExtendedRights":   {"id": "T1078.002", "name": "Valid Accounts: Domain Accounts"},
     "ForceChangePassword": {"id": "T1098",     "name": "Account Manipulation"},
     "AddMember":           {"id": "T1098.001", "name": "Account Manipulation: Additional Cloud Credentials"},
-    "ShadowCredentials":   {"id": "T1098.004", "name": "Account Manipulation: SSH Authorized Keys"},
+    "AddKeyCredentialLink": {"id": "T1098",     "name": "Account Manipulation"},
+    "AddAllowedToAct":     {"id": "T1558",     "name": "Steal or Forge Kerberos Tickets"},
+    "WriteSPN":            {"id": "T1558.003", "name": "Kerberoasting"},
+    "WriteAccountRestrictions": {"id": "T1098", "name": "Account Manipulation"},
     "GenericWrite":        {"id": "T1098",     "name": "Account Manipulation"},
     "AddSelf":             {"id": "T1098",     "name": "Account Manipulation"},
+    "Owns":                {"id": "T1222.001", "name": "Windows File & Directory Permissions Modification"},
 }
 
 # ── Well-known SID resolution ─────────────────────────────────────────────────
@@ -195,8 +201,8 @@ def _classify_ace(mask: int, obj_guid: Optional[str]) -> Optional[str]:
         if obj_guid is None:
             return "AllExtendedRights"
         right = EXT_RIGHT.get(obj_guid)
-        if right == "GetChangesAll":
-            return "DCSync"
+        if right in {"GetChanges", "GetChangesAll", "GetChangesInFilteredSet"}:
+            return right
         if right == "ForceChangePassword":
             return "ForceChangePassword"
         if right == "Enroll":
@@ -213,9 +219,13 @@ def _classify_ace(mask: int, obj_guid: Optional[str]) -> Optional[str]:
         if prop == "member":
             return "AddMember"
         if prop == "msDS-KeyCredentialLink":
-            return "ShadowCredentials"
+            return "AddKeyCredentialLink"
         if prop == "msDS-AllowedToActOnBehalfOfOtherIdentity":
-            return "WriteRBCD"
+            return "AddAllowedToAct"
+        if prop == "servicePrincipalName":
+            return "WriteSPN"
+        if prop in {"userAccountControl", "msDS-AllowedToDelegateTo"}:
+            return "WriteAccountRestrictions"
         return "GenericWrite"
 
     # Validated write (AddSelf to group member)
@@ -255,13 +265,28 @@ def parse_security_descriptor(raw_sd: bytes) -> list[dict]:
     # 16       4    OffsetDacl
     try:
         control     = struct.unpack_from("<H", raw_sd, 2)[0]
+        offset_owner = struct.unpack_from("<I", raw_sd, 4)[0]
         offset_dacl = struct.unpack_from("<I", raw_sd, 16)[0]
     except struct.error:
         return []
 
+    results = []
+    if offset_owner and offset_owner < len(raw_sd):
+        owner_sid = parse_sid(raw_sd[offset_owner:])
+        if owner_sid:
+            results.append({
+                "sid": owner_sid,
+                "sid_name": WELL_KNOWN_SIDS.get(owner_sid, ""),
+                "edge_type": "Owns",
+                "mask": 0,
+                "object_guid": None,
+                "ace_flags": 0,
+                "mitre": MITRE.get("Owns"),
+            })
+
     SE_DACL_PRESENT = 0x0004
     if not (control & SE_DACL_PRESENT) or offset_dacl == 0:
-        return []
+        return results
 
     # ACL header at offset_dacl:
     # Offset  Size  Field
@@ -275,7 +300,6 @@ def parse_security_descriptor(raw_sd: bytes) -> list[dict]:
     except struct.error:
         return []
 
-    results = []
     ace_offset = offset_dacl + 8   # first ACE starts here
 
     for _ in range(ace_count):
@@ -343,7 +367,7 @@ def parse_security_descriptor(raw_sd: bytes) -> list[dict]:
             sid       = parse_sid(ace_body[cursor:])
             edge_type = _classify_ace(mask, object_guid)
 
-            if edge_type and edge_type != "Enroll" and sid:
+            if edge_type and sid:
                 results.append({
                     "sid":         sid,
                     "sid_name":    WELL_KNOWN_SIDS.get(sid, ""),

@@ -9,8 +9,8 @@ Usage:
   serket -d corp.local -u jdoe -k
   serket server
   serket server -d corp.local
-  serket --load results/serket_corp_20260101_120000.json
-  serket --serve results/serket_corp_20260101_120000.json
+  serket --load results/serket_corp_20260101_120000
+  serket --serve results/serket_corp_20260101_120000
 """
 
 import argparse
@@ -90,10 +90,10 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Skip ADCS template enumeration")
     opt.add_argument("-o", "--output", default=DEFAULT_OUTPUT, metavar="DIR",
                      help=f"Output directory (default: {DEFAULT_OUTPUT})")
-    opt.add_argument("--load", metavar="JSON",
-                     help="Load and display a previously saved results JSON")
-    opt.add_argument("--serve", metavar="JSON",
-                     help="Launch interactive web UI from a saved results JSON")
+    opt.add_argument("--load", metavar="PATH",
+                     help="Load a result bundle, manifest, or legacy results JSON")
+    opt.add_argument("--serve", metavar="PATH",
+                     help="Launch the web UI from a bundle, manifest, or legacy JSON")
     opt.add_argument("--port", type=int, default=8080,
                      help="Web UI port for server/--serve (default: 8080, always 127.0.0.1)")
     opt.add_argument("--quiet", "-q", action="store_true",
@@ -147,7 +147,11 @@ def _run_collect(args) -> None:
     else:
         collector.connect()
 
-    ad_data  = collector.collect_all(progress_cb=_progress)
+    ad_data = collector.collect_all(
+        progress_cb=_progress,
+        include_acls=not args.no_acls,
+        include_adcs=not args.no_adcs,
+    )
 
     if not args.quiet:
         console.print("\n[bold white]Building attack graph...[/]")
@@ -239,7 +243,7 @@ def _run_load(json_path: str, max_paths: int = 20) -> None:
 # ── Serve mode ────────────────────────────────────────────────────────────────
 
 def _find_latest_result(output_dir: str, domain: str | None = None) -> str | None:
-    """Find the newest saved JSON, optionally restricted to one domain."""
+    """Find the newest complete bundle or legacy JSON for one domain."""
     directory = Path(output_dir).expanduser()
     try:
         candidates = list(directory.iterdir())
@@ -254,14 +258,19 @@ def _find_latest_result(output_dir: str, domain: str | None = None) -> str | Non
     results: list[Path] = []
     for path in candidates:
         try:
-            is_result = (
-                path.is_file()
-                and path.suffix.casefold() == ".json"
+            is_bundle = (
+                path.is_dir()
                 and path.name.casefold().startswith(prefix)
+                and (path / "manifest.json").is_file()
+            )
+            is_legacy_json = (
+                path.is_file()
+                and path.name.casefold().startswith(prefix)
+                and bool(re.search(r"_\d{8}_\d{6}\.json$", path.name, re.IGNORECASE))
             )
         except OSError:
             continue
-        if not is_result:
+        if not (is_bundle or is_legacy_json):
             continue
         results.append(path)
 
@@ -270,7 +279,7 @@ def _find_latest_result(output_dir: str, domain: str | None = None) -> str | Non
     # Serket filenames end in YYYYMMDD_HHMMSS, which remains reliable when
     # result files are copied between systems and their filesystem mtime changes.
     def collection_stamp(path: Path) -> str:
-        match = re.search(r"_(\d{8}_\d{6})\.json$", path.name, re.IGNORECASE)
+        match = re.search(r"_(\d{8}_\d{6})(?:\.json)?$", path.name, re.IGNORECASE)
         return match.group(1) if match else ""
 
     return str(max(results, key=lambda path: (collection_stamp(path), path.name)))
@@ -289,9 +298,9 @@ def _run_server_command(output_dir: str, domain: str | None, port: int) -> None:
     _run_serve(json_path, port=port)
 
 def _run_serve(json_path: str, port: int = 8080) -> None:
-    """Load a saved JSON result and launch the interactive web UI."""
-    if not os.path.isfile(json_path):
-        console.print(f"[red][!] File not found: {json_path}[/]")
+    """Load a saved result bundle or legacy JSON and launch the web UI."""
+    if not os.path.exists(json_path):
+        console.print(f"[red][!] Result not found: {json_path}[/]")
         sys.exit(1)
 
     try:
@@ -353,8 +362,8 @@ def main() -> None:
 
     # ── Load mode ─────────────────────────────────────────────────────────────
     if args.load:
-        if not os.path.isfile(args.load):
-            console.print(f"[red][!] File not found: {args.load}[/]")
+        if not os.path.exists(args.load):
+            console.print(f"[red][!] Result not found: {args.load}[/]")
             sys.exit(1)
         _run_load(args.load, max_paths=args.max_paths)
         return

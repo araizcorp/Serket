@@ -202,6 +202,9 @@ function typeColor(type, highValue) {
     User: "#65a9e8",
     Group: "#a68af6",
     Computer: "#74b5bc",
+    Workstation: "#74b5bc",
+    Server: "#e4a64e",
+    DomainController: "#d6ae55",
     Domain: "#d6ae55",
     CertTemplate: "#62c78a",
     GPO: "#e4a64e",
@@ -212,7 +215,8 @@ function typeColor(type, highValue) {
 
 function typeGlyph(type) {
   return {
-    User: "USR", Group: "GRP", Computer: "PC", Domain: "DOM",
+    User: "USR", Group: "GRP", Computer: "PC", Workstation: "WS",
+    Server: "SRV", DomainController: "DC", Domain: "DOM",
     CertTemplate: "CT", GPO: "GPO", OU: "OU", CA: "CA"
   }[type] || "OBJ";
 }
@@ -223,6 +227,9 @@ function typeIcon(type) {
     User: '<svg' + base + '><circle cx="12" cy="7.5" r="3.5"></circle><path d="M4.5 20c0-4 3.2-7 7.5-7s7.5 3 7.5 7"></path></svg>',
     Group: '<svg' + base + '><circle cx="9" cy="8" r="3"></circle><path d="M2.5 20c0-3.5 2.8-6 6.5-6s6.5 2.5 6.5 6"></path><circle cx="17" cy="9" r="2.5" opacity=".55"></circle><path d="M15 15c3.5-.6 6.5 1.3 6.5 5" opacity=".55"></path></svg>',
     Computer: '<svg' + base + '><rect x="2.5" y="3" width="19" height="13" rx="2"></rect><path d="M8 21h8M12 16v5"></path></svg>',
+    Workstation: '<svg' + base + '><rect x="2.5" y="3" width="19" height="13" rx="2"></rect><path d="M8 21h8M12 16v5"></path></svg>',
+    Server: '<svg' + base + '><rect x="3" y="3" width="18" height="7" rx="1.5"></rect><rect x="3" y="14" width="18" height="7" rx="1.5"></rect><circle cx="17.5" cy="6.5" r="1"></circle><circle cx="17.5" cy="17.5" r="1"></circle></svg>',
+    DomainController: '<svg' + base + '><rect x="3" y="2.5" width="18" height="8" rx="1.5"></rect><rect x="3" y="13.5" width="18" height="8" rx="1.5"></rect><path d="M7 6.5h6M7 17.5h6"></path><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"></circle><circle cx="17.5" cy="17.5" r="1" fill="currentColor" stroke="none"></circle></svg>',
     Domain: '<svg' + base + '><rect x="3" y="2.5" width="18" height="8" rx="1.5"></rect><rect x="3" y="13.5" width="18" height="8" rx="1.5"></rect><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"></circle><circle cx="17.5" cy="17.5" r="1" fill="currentColor" stroke="none"></circle></svg>',
     CertTemplate: '<svg' + base + '><path d="M12 2.5 4.5 6v5.5c0 5 3.2 9 7.5 10.5 4.3-1.5 7.5-5.5 7.5-10.5V6Z"></path><path d="m9 12 2 2 4-4"></path></svg>'
   };
@@ -359,7 +366,14 @@ function renderOverview() {
   ).join("");
 
   const collection = (state.meta && state.meta.collection) || {};
+  const systems = state.stats.systems || {};
+  const quality = state.stats.quality || {};
   $("#collection-summary").innerHTML = [
+    ["Estaciones", fmt(systems.workstation)],
+    ["Servidores", fmt(systems.server)],
+    ["Controladores de dominio", fmt(systems.domain_controller)],
+    ["Relaciones ACL", fmt(quality.acl_relationships)],
+    ["Calidad", quality.status || "No registrada"],
     ["Perfil", collection.profile || "No registrado"],
     ["Búsquedas LDAP", fmt(collection.searches)],
     ["Entradas procesadas", fmt(collection.entries)],
@@ -735,7 +749,7 @@ function graphScopeIds(nodes, edges) {
 
 function layeredPositions(nodes, depth) {
   const layers = new Map();
-  const typeLayer = {User: 0, Computer: 1, OU: 1, Group: 2, GPO: 2, CertTemplate: 2, CA: 3, Domain: 4};
+  const typeLayer = {User: 0, Computer: 1, Workstation: 1, Server: 1, DomainController: 4, OU: 1, Container: 1, Group: 2, GPO: 2, CertTemplate: 2, CA: 3, Domain: 4};
   let maxDepth = Math.max(4, ...Array.from(depth.values()));
   nodes.forEach((node, index) => {
     let layer = depth.get(String(node.id));
@@ -941,6 +955,7 @@ function renderNodeInspector() {
 function nodePropertyDetails(node) {
   const properties = [
     ["DNS", node.dns], ["UPN", node.upn], ["sAMAccountName", node.sam_account_name || node.sam],
+    ["Rol", node.computer_role], ["Sistema operativo", node.os],
     ["AdminCount", node.admin_count], ["LAPS", node.laps_readable ? "Lectura marcada" : "—"],
     ["gMSA", node.is_gmsa ? "Sí" : "—"]
   ].filter(item => item[1] != null && item[1] !== "");

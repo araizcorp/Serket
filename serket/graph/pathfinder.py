@@ -43,6 +43,19 @@ def _resolve_high_value_nodes(ag: ADGraph) -> set[str]:
     return hvn
 
 
+def _traversable_projection(G) -> nx.DiGraph:
+    """Project a MultiDiGraph to the quietest traversable edge per node pair."""
+    projected = nx.DiGraph()
+    projected.add_nodes_from(G.nodes(data=True))
+    for source, target, data in G.edges(data=True):
+        if data.get("traversable", True) is False:
+            continue
+        existing = projected.get_edge_data(source, target)
+        if existing is None or int(data.get("opsec_score", 5)) < int(existing.get("opsec_score", 5)):
+            projected.add_edge(source, target, **data)
+    return projected
+
+
 # ── Suggested commands per edge type ─────────────────────────────────────────
 # Placeholders: {domain}, {dc_ip}, {user}, {password}, {target}, {target_spn}
 
@@ -190,6 +203,11 @@ SUGGESTED_COMMANDS: dict[str, list[str]] = {
 }
 
 
+SUGGESTED_COMMANDS["AddKeyCredentialLink"] = SUGGESTED_COMMANDS["ShadowCredentials"]
+SUGGESTED_COMMANDS["AddAllowedToAct"] = SUGGESTED_COMMANDS["RBCD"]
+SUGGESTED_COMMANDS["WriteSPN"] = SUGGESTED_COMMANDS["GenericWrite"]
+
+
 # ── OPSEC-weighted path cost ──────────────────────────────────────────────────
 
 def _path_cost(G: nx.DiGraph, path: list[str]) -> int:
@@ -245,6 +263,7 @@ def get_attack_surface(ag: ADGraph, ad_data: dict) -> dict:
         "rbcd":                  [],
         "dcsync":                [],
         "acl_abuse":             [],
+        "permissions":           [],
         "adcs_esc1":             [],
         "sid_history":           [],
         "password_in_desc":      [],
@@ -281,14 +300,20 @@ def get_attack_surface(ag: ADGraph, ad_data: dict) -> dict:
                 "sid": src, "name": src_d.get("name", src),
                 "target": tgt_d.get("name", tgt),
             })
-        elif etype in ("GenericAll", "WriteDACL", "WriteOwner",
+        elif etype in ("GenericAll", "WriteDACL", "WriteOwner", "Owns",
                        "AllExtendedRights", "ForceChangePassword",
-                       "AddMember", "ShadowCredentials", "GenericWrite"):
+                       "AddMember", "AddSelf", "ShadowCredentials",
+                       "AddKeyCredentialLink", "AddAllowedToAct", "WriteSPN",
+                       "WriteAccountRestrictions", "GenericWrite", "WriteRBCD"):
             surface["acl_abuse"].append({
                 "sid": src, "name": src_d.get("name", src),
                 "target_sid": tgt, "target_name": tgt_d.get("name", tgt),
                 "edge": etype,
-                "target_high_value": tgt_d.get("high_value", False),
+                "target_high_value": bool(
+                    tgt_d.get("high_value", False) or tgt_d.get("is_dc", False)
+                ),
+                "target_type": tgt_d.get("type", "?"),
+                "inherited": data.get("inherited", False),
             })
         elif etype == "ADCS_ESC1":
             surface["adcs_esc1"].append({
@@ -309,6 +334,20 @@ def get_attack_surface(ag: ADGraph, ad_data: dict) -> dict:
         elif etype == "HasPasswordInDescription":
             surface["password_in_desc"].append({
                 "sid": src, "name": src_d.get("name", src),
+            })
+
+        if "mask" in data or etype in {
+            "GetChanges", "GetChangesAll", "GetChangesInFilteredSet", "Enroll"
+        }:
+            surface["permissions"].append({
+                "sid": src,
+                "name": src_d.get("name", src),
+                "target_sid": tgt,
+                "target_name": tgt_d.get("name", tgt),
+                "target_type": tgt_d.get("type", "?"),
+                "permission": etype,
+                "inherited": data.get("inherited", False),
+                "traversable": data.get("traversable", True),
             })
 
     # LAPS and gMSA are node attributes, not edges — collect from nodes
@@ -354,7 +393,7 @@ class Pathfinder:
             'surface':    attack surface summary,
           }
         """
-        G      = ag.G
+        G      = _traversable_projection(ag.G)
         hvn    = _resolve_high_value_nodes(ag)
         paths  = []
         seen   = set()   # (src, tgt) pairs already added

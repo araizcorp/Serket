@@ -14,7 +14,7 @@ def _build_graph(data: dict[str, Any]):
     import networkx as nx
 
     raw = data.get("graph") or {}
-    graph = nx.DiGraph()
+    graph = nx.MultiDiGraph()
     for node in raw.get("nodes") or []:
         node_id = _endpoint_id(node.get("id"))
         if node_id:
@@ -24,12 +24,21 @@ def _build_graph(data: dict[str, Any]):
         source = _endpoint_id(edge.get("source"))
         target = _endpoint_id(edge.get("target"))
         if source and target:
-            graph.add_edge(
-                source,
-                target,
-                **{key: value for key, value in edge.items() if key not in {"source", "target"}},
-            )
-    return graph
+            attrs = {
+                key: value for key, value in edge.items()
+                if key not in {"source", "target", "key"}
+            }
+            graph.add_edge(source, target, **attrs)
+
+    projected = nx.DiGraph()
+    projected.add_nodes_from(graph.nodes(data=True))
+    for source, target, attrs in graph.edges(data=True):
+        if attrs.get("traversable", True) is False:
+            continue
+        existing = projected.get_edge_data(source, target)
+        if existing is None or int(attrs.get("opsec_score", 5)) < int(existing.get("opsec_score", 5)):
+            projected.add_edge(source, target, **attrs)
+    return projected
 
 
 def _high_value_nodes(graph, data: dict[str, Any]) -> set[str]:
@@ -119,7 +128,9 @@ def install_query_route(app, data: dict[str, Any]) -> None:
             if candidate == source or candidate not in graph:
                 continue
             try:
-                nodes = nx.shortest_path(graph, source=source, target=candidate)
+                nodes = nx.shortest_path(
+                    graph, source=source, target=candidate, weight="opsec_score"
+                )
             except (nx.NetworkXNoPath, nx.NodeNotFound):
                 continue
             if max_hops is not None and len(nodes) - 1 > max_hops:
@@ -136,6 +147,6 @@ def install_query_route(app, data: dict[str, Any]) -> None:
             "paths": candidates[:limit],
             "source": source,
             "target": target,
-            "algorithm": "shortest-hop path over the loaded graph",
+            "algorithm": "lowest-cost path over traversable loaded relationships",
             "queried_directory": False,
         }

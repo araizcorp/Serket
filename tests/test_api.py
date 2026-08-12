@@ -12,6 +12,9 @@ class ApiTests(unittest.TestCase):
             "stats": {"nodes": 2, "edges": 1},
             "paths": [],
             "surface": {},
+            "coverage": {"directory": {"status": "collected"}},
+            "system_counts": {"workstation": 1, "server": 0, "domain_controller": 0},
+            "quality": {"status": "ok", "acl_relationships": 2},
             "graph": {
                 "directed": True,
                 "nodes": [
@@ -117,6 +120,16 @@ class ApiTests(unittest.TestCase):
         status, _, body = self.request("/healthz")
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body), {"status": "ok", "product": "serket"})
+
+    def test_stats_and_coverage_report_collection_scope(self):
+        stats_status, _, stats_body = self.request("/api/stats")
+        coverage_status, _, coverage_body = self.request("/api/coverage")
+
+        self.assertEqual(stats_status, 200)
+        self.assertEqual(coverage_status, 200)
+        self.assertEqual(json.loads(stats_body)["systems"]["workstation"], 1)
+        self.assertEqual(json.loads(stats_body)["quality"]["status"], "ok")
+        self.assertEqual(json.loads(coverage_body)["directory"]["status"], "collected")
 
 
 if __name__ == "__main__":

@@ -36,6 +36,22 @@ class CliTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             self.assertIsNone(_find_latest_result(temp_dir, "missing.local"))
 
+    def test_server_prefers_newer_complete_bundle(self):
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            legacy = root / "serket_lab_example_20260101_100000.json"
+            legacy.write_text("{}", encoding="utf-8")
+            bundle = root / "serket_lab_example_20260101_130000"
+            bundle.mkdir()
+            (bundle / "manifest.json").write_text("{}", encoding="utf-8")
+            incomplete = root / "serket_lab_example_20260101_140000"
+            incomplete.mkdir()
+
+            self.assertEqual(
+                _find_latest_result(temp_dir, "lab.example"),
+                str(bundle),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

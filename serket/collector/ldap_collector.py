@@ -22,7 +22,7 @@ from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.protocol.microsoft import security_descriptor_control
 
 from serket.collector.acl_parser import (
-    parse_security_descriptor, parse_sid, WELL_KNOWN_SIDS,
+    format_guid, parse_security_descriptor, parse_sid, WELL_KNOWN_SIDS,
 )
 
 
@@ -51,14 +51,20 @@ HIGH_VALUE_RIDS = {
     "520": "Group Policy Creator Owners",
     "521": "Read-Only Domain Controllers",
     "553": "RAS and IAS Servers",
+    "544": "BUILTIN Administrators",
+    "548": "Account Operators",
+    "549": "Server Operators",
+    "550": "Print Operators",
+    "551": "Backup Operators",
 }
 
 # ── Objects whose ACLs we always collect ─────────────────────────────────────
-_ACL_TARGET_FILTERS = [
-    ("(&(objectClass=group)(adminCount=1))",  SUBTREE),   # protected groups
-    ("(objectClass=domain)",                   BASE),      # domain root (DCSync)
-    ("(cn=AdminSDHolder)",                     SUBTREE),   # AdminSDHolder template
-]
+_ACL_TARGET_FILTER = (
+    "(|(objectClass=user)(objectClass=group)(objectClass=computer)"
+    "(objectClass=organizationalUnit)(objectClass=container)"
+    "(objectClass=groupPolicyContainer)(objectClass=domainDNS)"
+    "(objectClass=domain))"
+)
 
 # ── Password-in-description heuristic ────────────────────────────────────────
 # Matches patterns like: "password=Abc123", "pwd: secret", "cred: P@ss"
@@ -100,6 +106,98 @@ def _int(val, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _mapping_value(mapping: dict, name: str, default=None):
+    """Read an LDAP attribute case-insensitively from a response mapping."""
+    if name in mapping:
+        return mapping[name]
+    folded = name.casefold()
+    for key, value in mapping.items():
+        if str(key).casefold() == folded:
+            return value
+    return default
+
+
+def _raw_values(entry: dict, name: str) -> list:
+    """Return untouched LDAP wire values, falling back to decoded values."""
+    raw = _mapping_value(entry.get("raw_attributes") or {}, name)
+    if raw not in (None, [], ()):
+        return _as_list(raw)
+    decoded = _mapping_value(entry.get("attributes") or {}, name)
+    return _as_list(decoded)
+
+
+def _raw_first(entry: dict, name: str, default=None):
+    return _first(_raw_values(entry, name), default)
+
+
+def _sid_value(value) -> str:
+    """Normalize a binary or already-canonical SID; reject mojibake IDs."""
+    if isinstance(value, (bytes, bytearray)):
+        return parse_sid(bytes(value))
+    text = _str(value).strip()
+    if re.fullmatch(r"S-\d+(?:-\d+)+", text, re.IGNORECASE):
+        return text.upper()
+    if text:
+        try:
+            recovered = parse_sid(text.encode("latin-1"))
+            if recovered:
+                return recovered
+        except UnicodeEncodeError:
+            pass
+    return ""
+
+
+def _sid_from_entry(entry: dict, name: str = "objectSid") -> str:
+    return _sid_value(_raw_first(entry, name))
+
+
+def _guid_from_entry(entry: dict, name: str = "objectGUID") -> str:
+    value = _raw_first(entry, name)
+    if isinstance(value, (bytes, bytearray)):
+        return format_guid(bytes(value))
+    return _str(value).strip().strip("{}").lower()
+
+
+def _object_classes(entry: dict) -> set[str]:
+    return {
+        str(item).casefold()
+        for item in _as_list(_mapping_value(entry.get("attributes") or {}, "objectClass"))
+    }
+
+
+def _directory_type(entry: dict) -> str:
+    classes = _object_classes(entry)
+    if "grouppolicycontainer" in classes:
+        return "GPO"
+    if "organizationalunit" in classes:
+        return "OU"
+    if "container" in classes:
+        return "Container"
+    if "group" in classes:
+        return "Group"
+    if "computer" in classes:
+        return "Computer"
+    if "user" in classes:
+        return "User"
+    if "domaindns" in classes or "domain" in classes:
+        return "Domain"
+    return "DirectoryObject"
+
+
+def _parent_dn(dn: str) -> str:
+    """Return the parent DN while respecting escaped commas in an RDN."""
+    match = re.search(r"(?<!\\),", dn)
+    return dn[match.end():] if match else ""
+
+
+def _computer_role(is_dc: bool, operating_system: str) -> str:
+    if is_dc:
+        return "domain_controller"
+    if "server" in (operating_system or "").casefold():
+        return "server"
+    return "workstation"
 
 
 class LDAPCollector:
@@ -295,8 +393,8 @@ class LDAPCollector:
         return results
 
     def _acl_search(self, base: str, ldap_filter: str, scope=SUBTREE) -> list[dict]:
-        """Search with SD_FLAGS control to retrieve DACL-only security descriptors."""
-        sd_ctrl = security_descriptor_control(sdflags=0x04)
+        """Search with SD_FLAGS control to retrieve owner and DACL data."""
+        sd_ctrl = security_descriptor_control(sdflags=0x05)
         return self._search(
             base, ldap_filter,
             ["nTSecurityDescriptor", "distinguishedName", "objectSid"],
@@ -317,11 +415,13 @@ class LDAPCollector:
         if not entries:
             return {}
 
-        attrs = entries[0]["attributes"]
-        raw_sid = _first(attrs.get("objectSid"))
-        self.domain_sid = (
-            parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
-        )
+        entry = entries[0]
+        attrs = entry["attributes"]
+        self.domain_sid = _sid_from_entry(entry)
+        if not self.domain_sid:
+            raise LDAPException(
+                "The domain objectSid could not be decoded from the LDAP raw response"
+            )
 
         result = {
             "name":              self.domain,
@@ -332,6 +432,7 @@ class LDAPCollector:
             "maq":               _int(attrs.get("ms-DS-MachineAccountQuota"), 10),
         }
         self._sid_name[self.domain_sid] = self.domain
+        self._dn_map[self.base_dn.lower()] = self.domain_sid
         return result
 
     # ── Users ─────────────────────────────────────────────────────────────────
@@ -354,8 +455,7 @@ class LDAPCollector:
         users: dict[str, dict] = {}
         for entry in entries:
             attrs = entry["attributes"]
-            raw_sid = _first(attrs.get("objectSid"))
-            sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
+            sid = _sid_from_entry(entry)
             if not sid:
                 continue
 
@@ -367,7 +467,7 @@ class LDAPCollector:
             enabled  = not bool(uac & UAC_ACCOUNTDISABLE)
 
             # RBCD trustees on this user (who can impersonate TO this account)
-            rbcd_raw = _first(attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity"))
+            rbcd_raw = _raw_first(entry, "msDS-AllowedToActOnBehalfOfOtherIdentity")
             rbcd_trustees = []
             if isinstance(rbcd_raw, bytes):
                 for ace in parse_security_descriptor(rbcd_raw):
@@ -376,11 +476,10 @@ class LDAPCollector:
 
             # sIDHistory — token can impersonate previous domain identity
             sid_hist = []
-            for raw in _as_list(attrs.get("sIDHistory")):
-                if isinstance(raw, bytes):
-                    s = parse_sid(raw)
-                    if s:
-                        sid_hist.append(s)
+            for raw in _raw_values(entry, "sIDHistory"):
+                s = _sid_value(raw)
+                if s:
+                    sid_hist.append(s)
 
             description = _str(attrs.get("description"))
 
@@ -431,8 +530,7 @@ class LDAPCollector:
         accounts: dict[str, dict] = {}
         for entry in entries:
             attrs = entry["attributes"]
-            raw_sid = _first(attrs.get("objectSid"))
-            sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
+            sid = _sid_from_entry(entry)
             if not sid:
                 continue
 
@@ -441,7 +539,7 @@ class LDAPCollector:
             uac = _int(attrs.get("userAccountControl"))
 
             rbcd_trustees = []
-            rbcd_raw = _first(attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity"))
+            rbcd_raw = _raw_first(entry, "msDS-AllowedToActOnBehalfOfOtherIdentity")
             if isinstance(rbcd_raw, bytes):
                 for ace in parse_security_descriptor(rbcd_raw):
                     if ace.get("sid"):
@@ -470,7 +568,7 @@ class LDAPCollector:
                 "has_password_hint": False,
                 "mail": "",
                 "is_gmsa": True,
-                "gmsa_password_readable": bool(attrs.get("msDS-ManagedPassword")),
+                "gmsa_password_readable": bool(_raw_values(entry, "msDS-ManagedPassword")),
             }
             self._dn_map[dn.lower()] = sid
             self._sid_name[sid] = sam
@@ -492,9 +590,8 @@ class LDAPCollector:
 
         groups: dict[str, dict] = {}
         for entry in entries:
-            attrs   = entry["attributes"]
-            raw_sid = _first(attrs.get("objectSid"))
-            sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
+            attrs = entry["attributes"]
+            sid = _sid_from_entry(entry)
             if not sid:
                 continue
 
@@ -541,9 +638,8 @@ class LDAPCollector:
 
         computers: dict[str, dict] = {}
         for entry in entries:
-            attrs   = entry["attributes"]
-            raw_sid = _first(attrs.get("objectSid"))
-            sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
+            attrs = entry["attributes"]
+            sid = _sid_from_entry(entry)
             if not sid:
                 continue
 
@@ -555,7 +651,7 @@ class LDAPCollector:
             unconstrained = bool(uac & UAC_TRUSTED_FOR_DELEGATION)
             constrained   = bool(uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION)
 
-            rbcd_raw = _first(attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity"))
+            rbcd_raw = _raw_first(entry, "msDS-AllowedToActOnBehalfOfOtherIdentity")
             rbcd_trustees = []
             if isinstance(rbcd_raw, bytes):
                 for ace in parse_security_descriptor(rbcd_raw):
@@ -577,15 +673,17 @@ class LDAPCollector:
                 else ""
             )
 
+            operating_system = _str(attrs.get("operatingSystem"))
             computers[sid] = {
                 "sid":                  sid,
                 "name":                 sam,
                 "dns":                  _str(attrs.get("dNSHostName")),
                 "dn":                   dn,
                 "uac":                  uac,
-                "os":                   _str(attrs.get("operatingSystem")),
+                "os":                   operating_system,
                 "member_of_dns":        _as_list(attrs.get("memberOf")),
                 "is_dc":                is_dc,
+                "computer_role":        _computer_role(is_dc, operating_system),
                 "unconstrained":        unconstrained,
                 "constrained":          constrained,
                 "delegation_targets":   _as_list(attrs.get("msDS-AllowedToDelegateTo")),
@@ -595,7 +693,7 @@ class LDAPCollector:
                 "laps_password":        laps_pwd,
                 "laps_expiry":          laps_exp,
                 "laps_scheme":          laps_scheme,
-                "laps_encrypted":       bool(attrs.get("msLAPS-EncryptedPassword")),
+                "laps_encrypted":       bool(_raw_values(entry, "msLAPS-EncryptedPassword")),
             }
             self._dn_map[dn.lower()] = sid
             self._sid_name[sid]      = sam
@@ -604,36 +702,116 @@ class LDAPCollector:
 
     # ── ACLs on key objects ───────────────────────────────────────────────────
 
+    def collect_directory_structure(self) -> dict[str, dict]:
+        """Collect OU/container hierarchy used by ACL and GPO attack paths."""
+        entries = self._search(
+            self.base_dn,
+            "(&(|(objectClass=organizationalUnit)(objectClass=container))"
+            "(!(objectClass=groupPolicyContainer)))",
+            ["name", "distinguishedName", "objectGUID", "objectClass"],
+        )
+        objects: dict[str, dict] = {}
+        for entry in entries:
+            guid = _guid_from_entry(entry)
+            if not guid:
+                continue
+            object_id = f"GUID:{guid}"
+            attrs = entry["attributes"]
+            dn = entry["dn"]
+            object_type = _directory_type(entry)
+            objects[object_id] = {
+                "id": object_id,
+                "guid": guid,
+                "name": _str(attrs.get("name")) or dn.split(",", 1)[0],
+                "dn": dn,
+                "type": object_type,
+                "parent_dn": _parent_dn(dn),
+            }
+            self._dn_map[dn.lower()] = object_id
+            self._sid_name[object_id] = objects[object_id]["name"]
+        return objects
+
+    def _target_id(self, entry: dict) -> str:
+        sid = _sid_from_entry(entry)
+        if sid:
+            return sid
+        guid = _guid_from_entry(entry)
+        if guid:
+            return f"GUID:{guid}"
+        return self._dn_map.get(entry.get("dn", "").lower(), "")
+
     def collect_acls(self) -> list[dict]:
-        """
-        Retrieve DACLs for the domain root and all adminCount=1 objects.
-        Returns raw ACE records with target DN resolved.
-        """
+        """Collect DACLs across AD structure objects, not only protected ones."""
+        sd_ctrl = security_descriptor_control(sdflags=0x05)
+        entries = self._search(
+            self.base_dn,
+            _ACL_TARGET_FILTER,
+            [
+                "nTSecurityDescriptor", "distinguishedName", "objectSid",
+                "objectGUID", "objectClass", "samAccountName", "name",
+            ],
+            SUBTREE,
+            sd_ctrl,
+        )
         all_aces: list[dict] = []
-        sd_ctrl  = security_descriptor_control(sdflags=0x04)
+        seen: set[tuple] = set()
+        replication_rights: dict[tuple[str, str], set[str]] = {}
 
-        for ldap_filter, scope in _ACL_TARGET_FILTERS:
-            entries = self._search(
-                self.base_dn, ldap_filter,
-                ["nTSecurityDescriptor", "distinguishedName", "objectSid", "samAccountName"],
-                scope, sd_ctrl,
+        for entry in entries:
+            raw_sd = _raw_first(entry, "nTSecurityDescriptor")
+            target_id = self._target_id(entry)
+            if not isinstance(raw_sd, (bytes, bytearray)) or not target_id:
+                continue
+            attrs = entry["attributes"]
+            target_dn = entry["dn"]
+            target_type = _directory_type(entry)
+            target_name = (
+                _str(attrs.get("samAccountName"))
+                or _str(attrs.get("name"))
+                or target_dn.split(",", 1)[0]
             )
-            for entry in entries:
-                attrs   = entry["attributes"]
-                raw_sd  = _first(attrs.get("nTSecurityDescriptor"))
-                tgt_dn  = entry["dn"]
-                raw_sid = _first(attrs.get("objectSid"))
-                tgt_sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
 
-                if not isinstance(raw_sd, bytes):
+            for ace in parse_security_descriptor(bytes(raw_sd)):
+                key = (
+                    ace.get("sid"), target_id, ace.get("edge_type"),
+                    ace.get("object_guid"), ace.get("ace_flags"),
+                )
+                if key in seen:
                     continue
+                seen.add(key)
+                record = {
+                    **ace,
+                    "target_dn": target_dn,
+                    "target_sid": target_id,
+                    "target_name": target_name,
+                    "target_type": target_type,
+                }
+                all_aces.append(record)
+                if ace.get("edge_type") in {
+                    "GetChanges", "GetChangesAll", "GetChangesInFilteredSet"
+                }:
+                    replication_rights.setdefault(
+                        (ace.get("sid", ""), target_id), set()
+                    ).add(ace["edge_type"])
 
-                for ace in parse_security_descriptor(raw_sd):
-                    all_aces.append({
-                        **ace,
-                        "target_dn":  tgt_dn,
-                        "target_sid": tgt_sid,
-                    })
+        # BloodHound-compatible post-processing: DCSync is effective only when
+        # GetChanges and GetChangesAll are both present on the domain object.
+        for (trustee_sid, target_id), rights in replication_rights.items():
+            if {"GetChanges", "GetChangesAll"}.issubset(rights):
+                all_aces.append({
+                    "sid": trustee_sid,
+                    "sid_name": self._sid_name.get(trustee_sid, ""),
+                    "edge_type": "DCSync",
+                    "mask": 0,
+                    "object_guid": None,
+                    "ace_flags": 0,
+                    "mitre": None,
+                    "target_dn": self.base_dn,
+                    "target_sid": target_id,
+                    "target_name": self.domain,
+                    "target_type": "Domain",
+                    "derived_from": sorted(rights),
+                })
 
         return all_aces
 
@@ -655,22 +833,37 @@ class LDAPCollector:
         # CAs live here, not in the Certificate Templates container
         ca_base  = f"CN=Enrollment Services,{pk_base}"
         tmpl_base = f"CN=Certificate Templates,{pk_base}"
-        sd_ctrl  = security_descriptor_control(sdflags=0x04)
+        sd_ctrl  = security_descriptor_control(sdflags=0x05)
 
         # Certificate Authorities (correct base: Enrollment Services)
         ca_entries = self._search(
             ca_base,
             "(objectClass=pKIEnrollmentService)",
-            ["cn", "distinguishedName", "dNSHostName", "cACertificateDN"],
+            [
+                "cn", "distinguishedName", "dNSHostName", "cACertificateDN",
+                "objectGUID", "nTSecurityDescriptor",
+            ],
+            controls=sd_ctrl,
         )
-        cas = [
-            {
-                "name": _str(e["attributes"].get("cn")),
-                "dn":   e["dn"],
-                "dns":  _str(e["attributes"].get("dNSHostName")),
-            }
-            for e in ca_entries
-        ]
+        cas = []
+        for entry in ca_entries:
+            attrs = entry["attributes"]
+            guid = _guid_from_entry(entry)
+            ca_id = f"GUID:{guid}" if guid else f"CA:{_str(attrs.get('cn'))}"
+            raw_sd = _raw_first(entry, "nTSecurityDescriptor")
+            acl_aces = (
+                parse_security_descriptor(bytes(raw_sd))
+                if isinstance(raw_sd, (bytes, bytearray)) else []
+            )
+            cas.append({
+                "id": ca_id,
+                "name": _str(attrs.get("cn")),
+                "dn": entry["dn"],
+                "dns": _str(attrs.get("dNSHostName")),
+                "acl_aces": acl_aces,
+            })
+            self._dn_map[entry["dn"].lower()] = ca_id
+            self._sid_name[ca_id] = _str(attrs.get("cn"))
 
         # Certificate templates (correct filter: pKICertificateTemplate)
         tmpl_entries = self._search(
@@ -680,7 +873,7 @@ class LDAPCollector:
                 "cn", "distinguishedName",
                 "msPKI-Certificate-Name-Flag", "msPKI-Enrollment-Flag",
                 "pKIExtendedKeyUsage", "msPKI-RA-Signature",
-                "nTSecurityDescriptor",
+                "nTSecurityDescriptor", "objectGUID",
             ],
             controls=sd_ctrl,
         )
@@ -702,19 +895,28 @@ class LDAPCollector:
             )
 
             # Parse enrollment ACL
-            raw_sd = _first(attrs.get("nTSecurityDescriptor"))
+            raw_sd = _raw_first(entry, "nTSecurityDescriptor")
             enroll_aces = []
-            if isinstance(raw_sd, bytes):
-                for ace in parse_security_descriptor(raw_sd):
+            acl_aces = []
+            if isinstance(raw_sd, (bytes, bytearray)):
+                acl_aces = parse_security_descriptor(bytes(raw_sd))
+                for ace in acl_aces:
                     if ace.get("edge_type") in ("Enroll", "AllExtendedRights", "GenericAll"):
                         enroll_aces.append(ace["sid"])
 
+            guid = _guid_from_entry(entry)
+            template_id = f"GUID:{guid}" if guid else f"TMPL:{_str(attrs.get('cn'))}"
+            self._dn_map[entry["dn"].lower()] = template_id
+            self._sid_name[template_id] = _str(attrs.get("cn"))
+
             templates.append({
+                "id":           template_id,
                 "name":         _str(attrs.get("cn")),
                 "dn":           entry["dn"],
                 "esc1":         esc1,
                 "ekus":         ekus,
                 "enroll_sids":  enroll_aces,
+                "acl_aces":     acl_aces,
             })
 
         return {"cas": cas, "templates": templates}
@@ -729,15 +931,21 @@ class LDAPCollector:
             ["displayName", "distinguishedName", "objectGUID", "gPCFileSysPath"],
         )
         gpos = {
-            _str(e["attributes"].get("objectGUID")): {
+            _guid_from_entry(e): {
+                "id":       f"GUID:{_guid_from_entry(e)}",
                 "name":     _str(e["attributes"].get("displayName")),
                 "dn":       e["dn"],
-                "guid":     _str(e["attributes"].get("objectGUID")),
+                "guid":     _guid_from_entry(e),
                 "path":     _str(e["attributes"].get("gPCFileSysPath")),
                 "linked_to": [],
             }
             for e in gpo_entries
+            if _guid_from_entry(e)
         }
+
+        for gpo in gpos.values():
+            self._dn_map[gpo["dn"].lower()] = gpo["id"]
+            self._sid_name[gpo["id"]] = gpo["name"]
 
         # Collect OU gPLink references
         ou_entries = self._search(
@@ -819,7 +1027,12 @@ class LDAPCollector:
 
     # ── Orchestrator ─────────────────────────────────────────────────────────
 
-    def collect_all(self, progress_cb=None) -> dict:
+    def collect_all(
+        self,
+        progress_cb=None,
+        include_acls: bool = True,
+        include_adcs: bool = True,
+    ) -> dict:
         """
         Run the full collection pipeline and return a structured ADData dict.
 
@@ -848,14 +1061,23 @@ class LDAPCollector:
         _step("Enumerating computers")
         computers = self.collect_computers()
 
-        _step("Collecting ACLs (domain root + protected objects)")
-        acls = self.collect_acls()
-
-        _step("Enumerating ADCS templates")
-        adcs = self.collect_adcs()
+        _step("Collecting OU and container structure")
+        directory_objects = self.collect_directory_structure()
 
         _step("Collecting GPO links")
         gpos = self.collect_gpos()
+
+        if include_acls:
+            _step("Collecting ACLs (all directory structure objects)")
+            acls = self.collect_acls()
+        else:
+            acls = []
+
+        if include_adcs:
+            _step("Enumerating ADCS services and templates")
+            adcs = self.collect_adcs()
+        else:
+            adcs = {"cas": [], "templates": []}
 
         _step("Collecting domain trusts")
         trusts = self.collect_trusts()
@@ -884,6 +1106,16 @@ class LDAPCollector:
         _step("Resolving transitive group membership")
         self._resolve_transitive_membership(users, groups, computers)
 
+        all_sid_objects = [domain] + list(users.values()) + list(groups.values()) + list(computers.values())
+        canonical_sids = sum(
+            1 for obj in all_sid_objects
+            if re.fullmatch(r"S-\d+(?:-\d+)+", str(obj.get("sid", "")), re.IGNORECASE)
+        )
+        system_counts = {
+            role: sum(1 for item in computers.values() if item.get("computer_role") == role)
+            for role in ("workstation", "server", "domain_controller")
+        }
+
         self._telemetry["completed_at"] = datetime.now(timezone.utc).isoformat()
         self._telemetry["duration_ms"] = round(
             (time.perf_counter() - started) * 1000, 2
@@ -893,6 +1125,7 @@ class LDAPCollector:
             "users":     users,
             "groups":    groups,
             "computers": computers,
+            "directory_objects": directory_objects,
             "acls":      acls,
             "adcs":      adcs,
             "gpos":      gpos,
@@ -900,4 +1133,31 @@ class LDAPCollector:
             "sid_name":  self._sid_name,
             "dn_map":    self._dn_map,
             "telemetry": self._telemetry,
+            "quality": {
+                "status": "ok" if canonical_sids == len(all_sid_objects) else "degraded",
+                "canonical_sids": canonical_sids,
+                "identity_objects": len(all_sid_objects),
+                "acl_relationships": len(acls),
+                "acl_scope": "all-directory-objects" if include_acls else "disabled",
+            },
+            "system_counts": system_counts,
+            "coverage": {
+                "directory": {
+                    "status": "collected",
+                    "source": "LDAP",
+                    "includes": [
+                        "object properties", "group memberships", "trusts",
+                        "OU/container hierarchy", "GPO links",
+                        "AD object permissions", "AD CS",
+                    ],
+                },
+                "host": {
+                    "status": "not_collected",
+                    "source": "SMB/RPC or host telemetry required",
+                    "missing_relationships": [
+                        "HasSession", "AdminTo", "CanRDP",
+                        "ExecuteDCOM", "CanPSRemote", "SQLAdmin",
+                    ],
+                },
+            },
         }
