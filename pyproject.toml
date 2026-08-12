@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "araizcorp-serket"
+version = "2.0.0"
+description = "Silent Active Directory attack-path mapper and local analysis workbench"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "AraizCorp LLC" },
+]
+keywords = ["active-directory", "attack-path", "security", "ldap"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Security",
+]
+dependencies = [
+  "dnspython>=2.6.0",
+  "ldap3>=2.9.1",
+  "networkx>=3.3",
+  "rich>=13.0.0",
+  "fastapi>=0.100.0",
+  "uvicorn>=0.23.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/araizcorp/Serket"
+Repository = "https://github.com/araizcorp/Serket"
+Issues = "https://github.com/araizcorp/Serket/issues"
+
+[project.scripts]
+serket = "serket.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["serket*"]
+
+[tool.setuptools.package-data]
+"serket.ui" = [
+  "*.css",
+  "*.html",
+  "*.js",
+  "assets/brand/*",
+]

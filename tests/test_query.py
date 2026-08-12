@@ -11,7 +11,7 @@ from serket.server.api import create_app
 class QueryTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        project_root = Path.cwd()
+        project_root = Path(__file__).resolve().parents[1]
         data = json.loads((project_root / "demo" / "serket-demo.json").read_text(encoding="utf-8"))
         app = create_app(data)
         cls.endpoint = next(

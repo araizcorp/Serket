@@ -57,7 +57,7 @@ The browser interface reads the saved result. It never executes validation comma
 
 ## Requirements
 
-- Python 3.9 or later
+- Python 3.10 or later
 - Network access from the collector host to the authorized domain controller
 - A domain account with enough read access for the selected collection scope
 - Docker or Podman only if the container workflow is used
@@ -73,8 +73,8 @@ The included demo contains fictional `LAB.SERKET.LOCAL` identities and does not 
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python serket.py --serve demo/serket-demo.json
+python -m pip install .
+serket --serve demo/serket-demo.json
 ```
 
 ### Linux or macOS
@@ -82,15 +82,15 @@ python serket.py --serve demo/serket-demo.json
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-python serket.py --serve demo/serket-demo.json
+python -m pip install .
+serket --serve demo/serket-demo.json
 ```
 
 Open <http://127.0.0.1:8080>. Native mode binds only to loopback and normally opens the default browser automatically.
 
 ## Install for native collection
 
-Clone the repository and install its Python dependencies inside a virtual environment:
+Clone the repository and install Serket inside a virtual environment:
 
 ```bash
 git clone https://github.com/araizcorp/Serket.git
@@ -98,10 +98,10 @@ cd Serket
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install .
 ```
 
-On Linux, `./install.sh --venv` provides the same basic setup. On Windows use `py` or `python` and activate with `.\.venv\Scripts\Activate.ps1`.
+The installation creates the `serket` console command, so the tool can be run from any directory while that environment is active. For an isolated user-wide command, install with `pipx install .`. On Linux, `./install.sh --venv` provides the same virtual-environment setup. On Windows use `py` or `python` and activate with `.\.venv\Scripts\Activate.ps1`.
 
 ## Collect an authorized domain
 
@@ -110,32 +110,32 @@ On Linux, `./install.sh --venv` provides the same basic setup. On Windows use `p
 Omit `-p` to enter the password through the hidden prompt instead of storing it in shell history:
 
 ```bash
-python serket.py \
-  -dc dc01.corp.local \
+serket \
   -d corp.local \
   -u auditor \
   --ldaps
 ```
 
+Serket discovers a domain controller automatically through the Active Directory DNS SRV records for the supplied domain. Use `-dc HOST` only to override discovery, select a specific controller or work around unavailable AD DNS.
+
 ### Kerberos
 
 ```bash
 export KRB5CCNAME=/tmp/auditor.ccache
-python serket.py -dc dc01.corp.local -d corp.local -u auditor -k
+serket -d corp.local -u auditor -k
 ```
 
 PowerShell equivalent:
 
 ```powershell
 $env:KRB5CCNAME = "C:\path\to\auditor.ccache"
-python serket.py -dc dc01.corp.local -d corp.local -u auditor -k
+serket -d corp.local -u auditor -k
 ```
 
 ### NTLM hash
 
 ```bash
-python serket.py \
-  -dc 10.10.10.10 \
+serket \
   -d corp.local \
   -u auditor \
   --hashes :NT_HASH
@@ -146,8 +146,7 @@ Only use credential material that is explicitly covered by the authorization for
 ### Collection controls
 
 ```bash
-python serket.py \
-  -dc dc01.corp.local \
+serket \
   -d corp.local \
   -u auditor \
   --rate-limit 0.20 \
@@ -157,6 +156,7 @@ python serket.py \
 
 | Option | Purpose |
 |---|---|
+| `-dc HOST` | Override automatic AD DNS discovery and use a specific controller |
 | `--rate-limit SEC` | Delay between LDAP result pages; default `0.08` seconds |
 | `--max-paths N` | Maximum global paths saved; default `20` |
 | `--no-acls` | Skip ACL collection; faster but removes important permission edges |
@@ -165,7 +165,7 @@ python serket.py \
 | `-o DIR` | Select the output directory |
 | `--quiet` | Suppress progress output for machine-oriented execution |
 
-Run `python serket.py --help` for the complete CLI reference.
+Run `serket --help` for the complete CLI reference. The legacy `python serket.py` entry point remains available from a source checkout.
 
 ## Results
 
@@ -181,13 +181,13 @@ The JSON contains metadata, collection telemetry, graph nodes and edges, derived
 ### Read a saved result in the terminal
 
 ```bash
-python serket.py --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json
+serket --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json
 ```
 
 ### Open a saved result in the Workbench
 
 ```bash
-python serket.py \
+serket \
   --serve ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json \
   --port 8080
 ```
@@ -311,7 +311,7 @@ Roadmap items are not security claims. Track implementation and tests in reposit
 
 ```bash
 python -B -m unittest discover -s tests -v
-python -m py_compile serket.py serket/server/api.py
+python -m py_compile serket.py serket/cli.py serket/server/api.py
 node --check serket/ui/workbench.js
 docker build --tag serket:dev .
 ```
@@ -321,7 +321,9 @@ The current automated suite covers API security headers, graph normalization, co
 ## Project layout
 
 ```text
-serket.py                  CLI and orchestration
+pyproject.toml             package metadata and `serket` console entry point
+serket.py                  source-checkout compatibility wrapper
+serket/cli.py              CLI and orchestration
 serket/collector/          LDAP collection and ACL parsing
 serket/graph/              graph construction and path analysis
 serket/output/             persistence and terminal reporting

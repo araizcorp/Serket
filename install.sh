@@ -15,9 +15,15 @@ echo "   ███████████████████████�
 echo -e "${NC}"
 
 PYTHON=${PYTHON:-python3}
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 if ! command -v "$PYTHON" &>/dev/null; then
-    echo -e "${RED}[!] python3 not found. Install Python 3.9+${NC}"
+    echo -e "${RED}[!] python3 not found. Install Python 3.10+${NC}"
+    exit 1
+fi
+
+if ! "$PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 10))'; then
+    echo -e "${RED}[!] Serket requires Python 3.10 or later.${NC}"
     exit 1
 fi
 
@@ -25,23 +31,26 @@ PY_VER=$("$PYTHON" -c "import sys; print(f'{sys.version_info.major}.{sys.version
 echo -e "${GREEN}[+] Python ${PY_VER} detected${NC}"
 
 # Create virtualenv if requested
-if [ "${1}" == "--venv" ]; then
+if [ "${1:-}" = "--venv" ]; then
     echo -e "${YELLOW}[*] Creating virtual environment...${NC}"
-    "$PYTHON" -m venv .venv
-    source .venv/bin/activate
-    echo -e "${GREEN}[+] venv activated${NC}"
+    "$PYTHON" -m venv "$SCRIPT_DIR/.venv"
+    PYTHON="$SCRIPT_DIR/.venv/bin/python"
+    echo -e "${GREEN}[+] venv created at $SCRIPT_DIR/.venv${NC}"
 fi
 
-echo -e "${YELLOW}[*] Installing dependencies...${NC}"
+echo -e "${YELLOW}[*] Installing Serket and its dependencies...${NC}"
 "$PYTHON" -m pip install --upgrade pip -q
-"$PYTHON" -m pip install -r requirements.txt -q
+"$PYTHON" -m pip install "$SCRIPT_DIR" -q
 
 echo -e "${GREEN}[+] Done.${NC}"
 echo ""
 echo -e "  Usage:"
-echo -e "    ${YELLOW}python serket.py -dc <DC_IP> -d <domain> -u <user> -p <pass>${NC}"
-echo -e "    ${YELLOW}python serket.py -dc <DC_IP> -d <domain> -u <user> --hashes :<NT>${NC}"
-echo -e "    ${YELLOW}python serket.py -dc <DC_IP> -d <domain> -u <user> -k${NC}"
-echo -e "    ${YELLOW}python serket.py --load results/serket_corp_*.json${NC}"
+if [ "${1:-}" = "--venv" ]; then
+    echo -e "    ${YELLOW}source \"$SCRIPT_DIR/.venv/bin/activate\"${NC}"
+fi
+echo -e "    ${YELLOW}serket -d <domain> -u <user> --ldaps${NC}"
+echo -e "    ${YELLOW}serket -d <domain> -u <user> --hashes :<NT>${NC}"
+echo -e "    ${YELLOW}serket -d <domain> -u <user> -k${NC}"
+echo -e "    ${YELLOW}serket --load results/serket_corp_*.json${NC}"
 echo ""
 echo -e "  ${RED}Authorized security testing environments only.${NC}"

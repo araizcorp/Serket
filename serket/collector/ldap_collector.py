@@ -251,8 +251,7 @@ class LDAPCollector:
             self.base_dn,
             "(objectClass=domain)",
             ["objectSid", "distinguishedName", "minPwdLength",
-             "lockoutThreshold", "ms-DS-MachineAccountQuota",
-             "domainFunctionality", "forestFunctionality"],
+             "lockoutThreshold", "ms-DS-MachineAccountQuota"],
             scope=BASE,
         )
         if not entries:

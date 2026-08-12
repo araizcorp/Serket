@@ -9,7 +9,8 @@ from serket.server.api import create_app
 class SearchTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        data = json.loads((Path.cwd() / "demo" / "serket-demo.json").read_text(encoding="utf-8"))
+        project_root = Path(__file__).resolve().parents[1]
+        data = json.loads((project_root / "demo" / "serket-demo.json").read_text(encoding="utf-8"))
         app = create_app(data)
         cls.search = next(route.endpoint for route in app.routes if getattr(route, "path", None) == "/api/search")
         cls.details = next(route.endpoint for route in app.routes if getattr(route, "path", None) == "/api/nodes/{node_id:path}")

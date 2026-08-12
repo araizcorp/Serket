@@ -23,11 +23,9 @@ WORKDIR /app
 RUN groupadd --system serket \
     && useradd --system --gid serket --create-home --home-dir /home/serket serket
 
-COPY requirements.txt ./
-RUN python -m pip install --upgrade pip \
-    && python -m pip install --requirement requirements.txt
-
 COPY --chown=serket:serket . .
+RUN python -m pip install --upgrade pip \
+    && python -m pip install .
 RUN mkdir -p /home/serket/.serket/results \
     && chown -R serket:serket /home/serket/.serket
 
@@ -38,5 +36,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=4s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3).read()"
 
-ENTRYPOINT ["python", "serket.py"]
+ENTRYPOINT ["serket"]
 CMD ["--serve", "/app/demo/serket-demo.json", "--port", "8080", "--quiet"]

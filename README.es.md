@@ -50,8 +50,8 @@ El laboratorio incluido contiene identidades ficticias de `LAB.SERKET.LOCAL` y n
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python serket.py --serve demo/serket-demo.json
+python -m pip install .
+serket --serve demo/serket-demo.json
 ```
 
 ### Linux o macOS
@@ -59,13 +59,15 @@ python serket.py --serve demo/serket-demo.json
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -r requirements.txt
-python serket.py --serve demo/serket-demo.json
+python -m pip install .
+serket --serve demo/serket-demo.json
 ```
 
 Abre <http://127.0.0.1:8080>. El modo nativo escucha únicamente en loopback.
 
 ## Instalación
+
+Serket requiere Python 3.10 o posterior.
 
 ```bash
 git clone https://github.com/araizcorp/Serket.git
@@ -73,41 +75,41 @@ cd Serket
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
+python -m pip install .
 ```
 
-En Windows utiliza `py` o `python` y activa el entorno con `.\.venv\Scripts\Activate.ps1`.
+La instalación crea el comando de consola `serket`, que puede ejecutarse desde cualquier directorio mientras el entorno esté activo. Para disponer de un comando aislado a nivel de usuario, instala con `pipx install .`. En Linux, `./install.sh --venv` realiza la misma preparación. En Windows utiliza `py` o `python` y activa el entorno con `.\.venv\Scripts\Activate.ps1`.
 
 ## Recopilar un dominio autorizado
 
 Es preferible omitir `-p` para introducir la contraseña mediante el prompt oculto:
 
 ```bash
-python serket.py \
-  -dc dc01.corp.local \
+serket \
   -d corp.local \
   -u auditor \
   --ldaps
 ```
 
+Serket descubre automáticamente un controlador mediante los registros DNS SRV de Active Directory correspondientes al dominio indicado. Utiliza `-dc HOST` solo para anular el descubrimiento, seleccionar un controlador concreto o trabajar sin acceso al DNS de AD.
+
 Kerberos:
 
 ```bash
 export KRB5CCNAME=/tmp/auditor.ccache
-python serket.py -dc dc01.corp.local -d corp.local -u auditor -k
+serket -d corp.local -u auditor -k
 ```
 
 Hash NTLM:
 
 ```bash
-python serket.py -dc 10.10.10.10 -d corp.local -u auditor --hashes :NT_HASH
+serket -d corp.local -u auditor --hashes :NT_HASH
 ```
 
 Controles habituales:
 
 ```bash
-python serket.py \
-  -dc dc01.corp.local \
+serket \
   -d corp.local \
   -u auditor \
   --rate-limit 0.20 \
@@ -117,6 +119,7 @@ python serket.py \
 
 | Opción | Función |
 |---|---|
+| `-dc HOST` | Anula el descubrimiento DNS automático y usa un controlador concreto |
 | `--rate-limit SEC` | Espera entre páginas LDAP; por defecto `0.08` segundos |
 | `--max-paths N` | Máximo de rutas globales guardadas |
 | `--no-acls` | Omite ACL; es más rápido pero elimina relaciones importantes |
@@ -125,7 +128,7 @@ python serket.py \
 | `-o DIR` | Selecciona el directorio de salida |
 | `--quiet` | Suprime el progreso para ejecuciones automatizadas |
 
-Consulta todas las opciones con `python serket.py --help`.
+Consulta todas las opciones con `serket --help`. El acceso heredado mediante `python serket.py` sigue disponible desde una copia del código fuente.
 
 ## Resultados y análisis
 
@@ -139,13 +142,13 @@ serket_corp_local_YYYYMMDD_HHMMSS_report.txt
 Ver el informe en terminal:
 
 ```bash
-python serket.py --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json
+serket --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json
 ```
 
 Abrir el Workbench:
 
 ```bash
-python serket.py --serve ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json --port 8080
+serket --serve ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json --port 8080
 ```
 
 El JSON contiene metadatos del dominio, telemetría de colección, grafo, superficie derivada y rutas calculadas. Debe tratarse como evidencia sensible del cliente.
@@ -226,7 +229,7 @@ Todavía no están completos:
 
 ```bash
 python -B -m unittest discover -s tests -v
-python -m py_compile serket.py serket/server/api.py
+python -m py_compile serket.py serket/cli.py serket/server/api.py
 node --check serket/ui/workbench.js
 docker build --tag serket:dev .
 ```
