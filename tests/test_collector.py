@@ -2,6 +2,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from ldap3.protocol.convert import build_controls_list
+
 from serket.collector.acl_parser import PROP_GUID
 from serket.collector.ldap_collector import (
     LDAPCollector,
@@ -106,6 +108,30 @@ class CollectorTests(unittest.TestCase):
             collector._telemetry["skipped_schema_attributes"],
             ["ms-Mcs-AdmPwd", "msLAPS-Password"],
         )
+
+    def test_dacl_controls_are_passed_in_ldap3_native_shape(self):
+        collector = self.collector()
+        captured = []
+
+        def capture_search(*args, **kwargs):
+            controls = kwargs.get("controls")
+            if controls is None and len(args) > 4:
+                controls = args[4]
+            if controls:
+                captured.append(controls)
+            return []
+
+        collector._search = capture_search
+        collector._acl_search(collector.base_dn, "(objectClass=domain)")
+        collector.collect_acls()
+        collector.config_dn = "CN=Configuration,DC=lab,DC=example"
+        collector.collect_adcs()
+
+        self.assertEqual(len(captured), 5)
+        for controls in captured:
+            self.assertEqual(len(controls), 1)
+            self.assertNotIsInstance(controls[0], list)
+            self.assertIsNotNone(build_controls_list(controls))
 
     def test_integer_attributes_accept_scalars_lists_and_invalid_values(self):
         self.assertEqual(_int(512), 512)

@@ -300,7 +300,7 @@ class LDAPCollector:
         return self._search(
             base, ldap_filter,
             ["nTSecurityDescriptor", "distinguishedName", "objectSid"],
-            scope, [sd_ctrl],
+            scope, sd_ctrl,
         )
 
     # ── Domain info ───────────────────────────────────────────────────────────
@@ -616,7 +616,7 @@ class LDAPCollector:
             entries = self._search(
                 self.base_dn, ldap_filter,
                 ["nTSecurityDescriptor", "distinguishedName", "objectSid", "samAccountName"],
-                scope, [sd_ctrl],
+                scope, sd_ctrl,
             )
             for entry in entries:
                 attrs   = entry["attributes"]
@@ -682,7 +682,7 @@ class LDAPCollector:
                 "pKIExtendedKeyUsage", "msPKI-RA-Signature",
                 "nTSecurityDescriptor",
             ],
-            controls=[sd_ctrl],
+            controls=sd_ctrl,
         )
 
         templates = []
