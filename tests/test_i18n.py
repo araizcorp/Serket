@@ -22,6 +22,30 @@ class InternationalizationTests(unittest.TestCase):
         self.assertIn('.flow-track::before', css)
         self.assertIn('.flow-edge.selected', css)
 
+    def test_explorer_supports_progressive_focus_and_collapsed_details(self):
+        html = (ROOT / "serket" / "ui" / "workbench.html").read_text(encoding="utf-8")
+        script = (ROOT / "serket" / "ui" / "workbench.js").read_text(encoding="utf-8")
+        inspector = (ROOT / "serket" / "ui" / "inspector-controls.js").read_text(encoding="utf-8")
+        layout_css = (ROOT / "serket" / "ui" / "workbench.css").read_text(encoding="utf-8")
+        inspector_css = (ROOT / "serket" / "ui" / "inspector-controls.css").read_text(encoding="utf-8")
+
+        self.assertIn('id="graph-back"', html)
+        self.assertIn('id="graph-details"', html)
+        self.assertIn("function focusExplorerNode", script)
+        self.assertIn("function explorerBack", script)
+        self.assertIn('state.graphOptions.scope = "outgoing"', script)
+        self.assertIn('scope === "incoming"', script)
+        self.assertIn('class="graph-edge-label"', script)
+        self.assertIn("parallelEdges", script)
+        self.assertIn('classList.toggle("explorer-mode"', script)
+        self.assertIn("explorerSelection && explorerActive", inspector)
+        self.assertIn('.app-shell.explorer-mode .context-panel', layout_css)
+        self.assertIn('"nav context inspector" auto', layout_css)
+        self.assertIn('.app-shell.explorer-mode .graph-filter-controls', layout_css)
+        self.assertIn('.app-shell.explorer-mode .inspector', inspector_css)
+        self.assertIn('width: min(480px, calc(100vw - 92px))', inspector_css)
+        self.assertIn('.app-shell.explorer-mode:not(.inspector-collapsed)', inspector_css)
+
 
 if __name__ == "__main__":
     unittest.main()

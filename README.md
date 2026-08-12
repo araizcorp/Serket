@@ -275,9 +275,10 @@ serket \
 3. **Paths** lets you select a source identity and a destination or all Tier 0 targets, filter the relationship type and constrain hop count.
 4. **Focused graph** displays the selected route as an interactive directed subgraph. Drag the diamond nodes to rearrange it; curves, arrows and labels follow automatically.
 5. **Inspector** opens when a node or edge is selected. Node tabs show controls, incoming control, memberships and saved paths. Relationship tabs show evidence, impact, validation, telemetry and remediation guidance.
-6. **Explorer** presents a focused graph around the selected object instead of trying to render the entire directory at once.
-7. **Exposure** groups Kerberos, delegation, ACL, AD CS, SID history, LAPS, gMSA and trust observations.
-8. **Detection** distinguishes documented expectations from unknown validation state. “Unknown” means that no detection evidence was imported; it does not mean the activity is invisible.
+6. **Explorer** supports progressive manual navigation. Selecting an object makes it the only focus and shows its direct outgoing relationships; selecting any displayed destination moves the focus forward. The Back control restores the previous focus, and the scope selector can switch to incoming or bidirectional relationships.
+7. **Explorer layout** keeps the scope controls in a compact horizontal bar above the graph. Object and relationship details are prepared in the background and open only with **Details** as a wider floating Inspector, so opening or closing it never resizes the graph.
+8. **Exposure** groups Kerberos, delegation, ACL, AD CS, SID history, LAPS, gMSA and trust observations.
+9. **Detection** distinguishes documented expectations from unknown validation state. “Unknown” means that no detection evidence was imported; it does not mean the activity is invisible.
 
 Use the `EN / ES` selector to change language. The interface stores only the language preference in the browser.
 
