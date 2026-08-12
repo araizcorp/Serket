@@ -3,7 +3,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from serket.collector.acl_parser import PROP_GUID
-from serket.collector.ldap_collector import LDAPCollector
+from serket.collector.ldap_collector import (
+    LDAPCollector,
+    UAC_DONT_REQ_PREAUTH,
+    _int,
+)
 
 
 class FakeConnection:
@@ -102,6 +106,34 @@ class CollectorTests(unittest.TestCase):
             collector._telemetry["skipped_schema_attributes"],
             ["ms-Mcs-AdmPwd", "msLAPS-Password"],
         )
+
+    def test_integer_attributes_accept_scalars_lists_and_invalid_values(self):
+        self.assertEqual(_int(512), 512)
+        self.assertEqual(_int(["4194304"]), UAC_DONT_REQ_PREAUTH)
+        self.assertEqual(_int([], 10), 10)
+        self.assertEqual(_int(["invalid"], 7), 7)
+
+    def test_users_accept_list_wrapped_user_account_control(self):
+        collector = self.collector()
+        collector._search = lambda *args, **kwargs: [
+            {
+                "dn": "CN=alice,CN=Users,DC=lab,DC=example",
+                "attributes": {
+                    "samAccountName": ["alice"],
+                    "objectSid": ["S-1-5-21-1-2-3-1100"],
+                    "userAccountControl": [str(UAC_DONT_REQ_PREAUTH)],
+                    "adminCount": ["1"],
+                    "memberOf": [],
+                    "servicePrincipalName": [],
+                },
+            }
+        ]
+
+        user = collector.collect_users()["S-1-5-21-1-2-3-1100"]
+
+        self.assertEqual(user["uac"], UAC_DONT_REQ_PREAUTH)
+        self.assertEqual(user["admin_count"], 1)
+        self.assertTrue(user["asreproastable"])
 
     def test_rbcd_queries_use_canonical_ldap_attribute(self):
         collector = self.collector()

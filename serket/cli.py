@@ -7,6 +7,8 @@ Usage:
   serket -d corp.local -u jdoe --ldaps
   serket -d corp.local -u jdoe --hashes :aad3b435b51404eeaad3b435b51404ee
   serket -d corp.local -u jdoe -k
+  serket server
+  serket server -d corp.local
   serket --load results/serket_corp_20260101_120000.json
   serket --serve results/serket_corp_20260101_120000.json
 """
@@ -14,6 +16,8 @@ Usage:
 import argparse
 import getpass
 import os
+from pathlib import Path
+import re
 import sys
 
 from rich.console import Console
@@ -36,6 +40,18 @@ from serket.output.saver import save_results, load_results, reconstruct_graph
 DEFAULT_OUTPUT = os.path.expanduser("~/.serket/results")
 
 
+def _configure_stdio() -> None:
+    """Keep Unicode terminal output from aborting on legacy console encodings."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not reconfigure:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (LookupError, OSError):
+            pass
+
+
 # ── Argument parser ───────────────────────────────────────────────────────────
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -44,12 +60,19 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Serket — Silent AD Attack Path Mapper v2.0 | AraizCorp LLC",
         formatter_class=argparse.RawTextHelpFormatter,
     )
+    p.add_argument(
+        "command", nargs="?", choices=["server"], metavar="{server}",
+        help="Open the latest saved result in the interactive web UI",
+    )
     auth = p.add_argument_group("Authentication")
     auth.add_argument(
         "-dc", "--dc", metavar="HOST",
         help="DC hostname or IP (optional; discovered from AD DNS by default)",
     )
-    auth.add_argument("-d",   "--domain",   metavar="DOMAIN", help="Domain FQDN (corp.local)")
+    auth.add_argument(
+        "-d", "--domain", metavar="DOMAIN",
+        help="Domain FQDN for collection or saved-result selection",
+    )
     auth.add_argument("-u",   "--user",     metavar="USER",   help="Username")
     auth.add_argument("-p",   "--password", metavar="PASS",   help="Password (omit to prompt)")
     auth.add_argument("--hashes",           metavar="LM:NT",  help="NTLM hashes (LM:NT or just :NT)")
@@ -72,7 +95,7 @@ def _build_parser() -> argparse.ArgumentParser:
     opt.add_argument("--serve", metavar="JSON",
                      help="Launch interactive web UI from a saved results JSON")
     opt.add_argument("--port", type=int, default=8080,
-                     help="Web UI port for --serve (default: 8080, always 127.0.0.1)")
+                     help="Web UI port for server/--serve (default: 8080, always 127.0.0.1)")
     opt.add_argument("--quiet", "-q", action="store_true",
                      help="Suppress progress output (machine-friendly)")
 
@@ -155,7 +178,7 @@ def _run_collect(args) -> None:
         console.print(f"\n[bold green]✓ Results saved to:[/] [cyan]{out_dir}[/]\n")
         console.print(
             f"  [dim]Tip: launch web UI with:[/]  "
-            f"[bold white]serket --serve {out_dir}/*.json[/]\n"
+            f"[bold white]serket server -d {args.domain}[/]\n"
         )
     else:
         paths = analysis.get("paths", [])
@@ -215,6 +238,56 @@ def _run_load(json_path: str, max_paths: int = 20) -> None:
 
 # ── Serve mode ────────────────────────────────────────────────────────────────
 
+def _find_latest_result(output_dir: str, domain: str | None = None) -> str | None:
+    """Find the newest saved JSON, optionally restricted to one domain."""
+    directory = Path(output_dir).expanduser()
+    try:
+        candidates = list(directory.iterdir())
+    except OSError:
+        return None
+
+    prefix = "serket_"
+    if domain:
+        prefix = f"serket_{domain.replace('.', '_')}_"
+    prefix = prefix.casefold()
+
+    results: list[Path] = []
+    for path in candidates:
+        try:
+            is_result = (
+                path.is_file()
+                and path.suffix.casefold() == ".json"
+                and path.name.casefold().startswith(prefix)
+            )
+        except OSError:
+            continue
+        if not is_result:
+            continue
+        results.append(path)
+
+    if not results:
+        return None
+    # Serket filenames end in YYYYMMDD_HHMMSS, which remains reliable when
+    # result files are copied between systems and their filesystem mtime changes.
+    def collection_stamp(path: Path) -> str:
+        match = re.search(r"_(\d{8}_\d{6})\.json$", path.name, re.IGNORECASE)
+        return match.group(1) if match else ""
+
+    return str(max(results, key=lambda path: (collection_stamp(path), path.name)))
+
+
+def _run_server_command(output_dir: str, domain: str | None, port: int) -> None:
+    """Open the latest result, with an optional domain selector."""
+    json_path = _find_latest_result(output_dir, domain)
+    if not json_path:
+        qualifier = f" for domain {domain}" if domain else ""
+        console.print(
+            f"[red][!] No saved Serket results found{qualifier} in {output_dir}.[/]"
+        )
+        console.print("  Run a collection first or select its directory with --output.")
+        sys.exit(1)
+    _run_serve(json_path, port=port)
+
 def _run_serve(json_path: str, port: int = 8080) -> None:
     """Load a saved JSON result and launch the interactive web UI."""
     if not os.path.isfile(json_path):
@@ -260,12 +333,18 @@ def _run_serve(json_path: str, port: int = 8080) -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
+    _configure_stdio()
     parser = _build_parser()
     args   = parser.parse_args()
 
     if not args.quiet:
         banner()
         console.print()
+
+    # ── Automatic server mode ─────────────────────────────────────────────────
+    if args.command == "server":
+        _run_server_command(args.output, args.domain, args.port)
+        return
 
     # ── Serve mode ────────────────────────────────────────────────────────────
     if args.serve:

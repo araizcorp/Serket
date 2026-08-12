@@ -212,13 +212,29 @@ serket_corp_local_YYYYMMDD_HHMMSS_report.txt
 
 The JSON contains metadata, collection telemetry, graph nodes and edges, derived exposure summaries and calculated paths. Treat it as sensitive assessment evidence even when it does not contain passwords.
 
+### Open the latest result in the Workbench
+
+After a collection finishes, start the web interface without locating the JSON manually:
+
+```bash
+serket server
+```
+
+This opens the newest result in `~/.serket/results/`. To select the newest result for a particular domain:
+
+```bash
+serket server -d corp.local
+```
+
+Use `--port 9090` to select another local port or `--output DIR` if the collection was saved outside the default directory. The Workbench listens only on `127.0.0.1`.
+
 ### Read a saved result in the terminal
 
 ```bash
 serket --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json
 ```
 
-### Open a saved result in the Workbench
+### Open a specific JSON in the Workbench
 
 ```bash
 serket \
