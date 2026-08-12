@@ -238,9 +238,10 @@ Los resultados creados por la versión v2.0 inicial afectada, donde los SID bina
 3. **Rutas** permite seleccionar un origen y un destino o todos los objetos Tier 0, filtrar relaciones y limitar saltos.
 4. **Grafo enfocado** muestra únicamente la ruta seleccionada. Los rombos se pueden mover libremente y las conexiones se recolocan en tiempo real.
 5. **Inspector** muestra propiedades, relaciones salientes y entrantes, membresías, rutas, evidencia, impacto, telemetría y corrección.
-6. **Explorer** explora el entorno del objeto seleccionado sin intentar representar todo el dominio de una vez.
-7. **Superficie** agrupa Kerberos, delegación, ACL, AD CS, SID history, LAPS, gMSA y trusts.
-8. **Detección** diferencia expectativas documentadas de evidencia desconocida. “Desconocido” no significa “invisible”; significa que no se ha importado validación del SIEM/EDR.
+6. **Explorer** permite navegación manual progresiva. Al seleccionar un objeto queda como único foco y se muestran sus relaciones salientes directas; al seleccionar cualquier destino visible, el foco avanza hacia ese objeto. **Volver** recupera el foco anterior y el selector de ámbito permite consultar relaciones entrantes o bidireccionales.
+7. **Diseño de Explorer** coloca los controles de ámbito en una franja horizontal compacta sobre el grafo. Los detalles del objeto o relación se preparan en segundo plano y sólo se abren mediante **Detalles** como un Inspector flotante más ancho, de modo que abrirlo o cerrarlo nunca redimensiona el grafo.
+8. **Superficie** agrupa Kerberos, delegación, ACL, AD CS, SID history, LAPS, gMSA y trusts.
+9. **Detección** diferencia expectativas documentadas de evidencia desconocida. “Desconocido” no significa “invisible”; significa que no se ha importado validación del SIEM/EDR.
 
 El selector `EN / ES` cambia el idioma y solo guarda esa preferencia en el navegador.
 

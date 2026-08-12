@@ -18,6 +18,8 @@ const state = {
   activePathIndex: -1,
   activeView: "overview",
   selectedNodeId: null,
+  explorerFocusId: null,
+  explorerHistory: [],
   selectedEdge: null,
   inspectorKind: null,
   inspectorTab: "evidence",
@@ -619,15 +621,17 @@ function nodeFlags(node) {
 function renderGraphContext() {
   const types = Array.from(new Set(state.searchNodes.map(node => node.type).filter(Boolean))).sort();
   const edges = Array.from(new Set((state.graph.edges || []).map(edge => edge.type || edge.edge_type).filter(Boolean))).sort();
+  const focus = state.nodeMap.get(String(state.explorerFocusId || ""));
   $("#context-body").innerHTML =
-    '<section class="context-block">' +
-      selectField("Ámbito", "graph-scope", [["relevant", "Rutas y Tier 0"], ["active", "Solo ruta activa"], ["selected", "Vecindario seleccionado"], ["tier0", "Vecindario Tier 0"]], state.graphOptions.scope) +
+    (focus ? '<section class="context-block graph-focus-controls"><div class="context-block-title">Foco actual</div><div class="focus-card"><strong>' + esc(focus.name || focus.id) + '</strong><span>' + esc(focus.type || "Objeto") + '</span></div><button class="secondary-button full" id="clear-graph-focus" type="button">Quitar foco</button></section>' : '') +
+    '<section class="context-block graph-filter-controls">' +
+      selectField("Ámbito", "graph-scope", [["outgoing", "Puede alcanzar"], ["incoming", "Puede alcanzarlo"], ["both", "Entrantes y salientes"], ["relevant", "Rutas y Tier 0"], ["active", "Solo ruta activa"], ["tier0", "Vecindario Tier 0"]], state.graphOptions.scope) +
       selectField("Tipo de objeto", "graph-type", [["all", "Todos los tipos"]].concat(types.map(type => [type, type])), state.graphOptions.type) +
       selectField("Tipo de relación", "graph-edge", [["all", "Todas las relaciones"]].concat(edges.map(type => [type, type])), state.graphOptions.edge) +
       selectField("Límite visual", "graph-limit", [["60", "60 objetos"], ["120", "120 objetos"], ["200", "200 objetos"]], String(state.graphOptions.limit)) +
       '<button class="primary-button full" id="apply-graph-filter" type="button">Actualizar subgrafo</button>' +
     '</section>' +
-    '<div class="context-note">El límite afecta solo a la visualización. Los datos no se eliminan del paquete ni del análisis.</div>';
+    '<div class="context-note graph-context-note">El límite afecta solo a la visualización. Los datos no se eliminan del paquete ni del análisis.</div>';
 
   $("#apply-graph-filter").addEventListener("click", () => {
     state.graphOptions.scope = $("#graph-scope").value;
@@ -637,6 +641,8 @@ function renderGraphContext() {
     state.graphDrawn = false;
     renderGraph();
   });
+  const clearFocus = $("#clear-graph-focus");
+  if (clearFocus) clearFocus.addEventListener("click", () => clearExplorerFocus());
 }
 
 function renderGraph() {
@@ -650,27 +656,52 @@ function renderGraph() {
     return;
   }
   $("#graph-empty").style.display = "none";
+  const focusNode = state.nodeMap.get(String(state.explorerFocusId || ""));
+  $("#explorer-title").textContent = focusNode ? String(focusNode.name || focusNode.id) : "Relaciones relevantes";
+  $("#explorer-subtitle").textContent = focusNode
+    ? "Sólo se muestran el foco y sus relaciones directas. Selecciona otro nodo para continuar."
+    : "Se carga un subgrafo limitado y verificable; no todo el dominio a la vez.";
 
   const visibleIds = graphScopeIds(nodes, edges);
   let visibleNodes = nodes.filter(node => visibleIds.has(String(node.id)));
-  if (state.graphOptions.type !== "all") visibleNodes = visibleNodes.filter(node => node.type === state.graphOptions.type || state.highValue.has(String(node.id)));
+  if (state.graphOptions.type !== "all") visibleNodes = visibleNodes.filter(node => node.type === state.graphOptions.type || state.highValue.has(String(node.id)) || String(node.id) === String(state.explorerFocusId));
   visibleNodes = visibleNodes.slice(0, state.graphOptions.limit);
   const finalIds = new Set(visibleNodes.map(node => String(node.id)));
   let visibleEdges = edges.filter(edge => finalIds.has(endpointId(edge.source)) && finalIds.has(endpointId(edge.target)) && endpointId(edge.source) !== endpointId(edge.target));
+  if (state.explorerFocusId && ["outgoing", "incoming", "both"].includes(state.graphOptions.scope)) {
+    const focus = String(state.explorerFocusId);
+    visibleEdges = visibleEdges.filter(edge => {
+      const source = endpointId(edge.source);
+      const target = endpointId(edge.target);
+      if (state.graphOptions.scope === "outgoing") return source === focus;
+      if (state.graphOptions.scope === "incoming") return target === focus;
+      return source === focus || target === focus;
+    });
+  }
   if (state.graphOptions.edge !== "all") visibleEdges = visibleEdges.filter(edge => (edge.type || edge.edge_type) === state.graphOptions.edge);
 
+  const focusedNavigation = Boolean(state.explorerFocusId && ["outgoing", "incoming", "both"].includes(state.graphOptions.scope));
   const activePath = state.paths[state.activePathIndex];
   const activeEdges = new Set();
   const depth = new Map();
-  if (activePath) {
+  if (activePath && !focusedNavigation) {
     (activePath.steps || []).forEach((step, index) => {
       activeEdges.add(String(step.src) + "|" + String(step.tgt));
       if (!depth.has(String(step.src))) depth.set(String(step.src), index);
       depth.set(String(step.tgt), index + 1);
     });
   }
+  if (focusedNavigation) {
+    graphDepthsFromFocus(visibleEdges, String(state.explorerFocusId), state.graphOptions.scope).forEach((value, id) => depth.set(id, value));
+  }
 
   const positions = layeredPositions(visibleNodes, depth);
+  const parallelEdges = new Map();
+  visibleEdges.forEach((edge, index) => {
+    const key = endpointId(edge.source) + "|" + endpointId(edge.target);
+    if (!parallelEdges.has(key)) parallelEdges.set(key, []);
+    parallelEdges.get(key).push(index);
+  });
   let html = '<g class="graph-edges">';
   visibleEdges.forEach((edge, index) => {
     const source = endpointId(edge.source);
@@ -679,9 +710,14 @@ function renderGraph() {
     const b = positions.get(target);
     if (!a || !b) return;
     const bend = Math.max(34, Math.abs(b.x - a.x) * .42);
-    const d = "M" + a.x + "," + a.y + " C" + (a.x + bend) + "," + a.y + " " + (b.x - bend) + "," + b.y + " " + b.x + "," + b.y;
+    const siblings = parallelEdges.get(source + "|" + target) || [index];
+    const slot = siblings.indexOf(index) - (siblings.length - 1) / 2;
+    const offset = slot * 18;
+    const d = "M" + a.x + "," + a.y + " C" + (a.x + bend) + "," + (a.y + offset) + " " + (b.x - bend) + "," + (b.y + offset) + " " + b.x + "," + b.y;
     const active = activeEdges.has(source + "|" + target) ? " active" : "";
-    html += '<path class="graph-edge' + active + '" data-edge-index="' + index + '" d="' + d + '"></path>';
+    const relation = String(edge.type || edge.edge_type || "Relación");
+    html += '<path class="graph-edge' + active + '" data-edge-index="' + index + '" d="' + d + '"><title>' + esc(relation) + '</title></path>' +
+      (focusedNavigation ? '<text class="graph-edge-label" x="' + ((a.x + b.x) / 2) + '" y="' + (((a.y + b.y) / 2) + offset - 5) + '">' + esc(relation) + '</text>' : '');
   });
   html += '</g><g class="graph-nodes">';
   visibleNodes.forEach(node => {
@@ -701,18 +737,22 @@ function renderGraph() {
   state.visibleNodes = new Map(visibleNodes.map(node => [String(node.id), node]));
   state.visibleEdges = visibleEdges;
   state.graphDrawn = true;
-  $("#graph-count").textContent = fmt(visibleNodes.length) + " objetos · " + fmt(visibleEdges.length) + " relaciones";
+  $("#graph-count").textContent = fmt(visibleNodes.length) + (visibleNodes.length === 1 ? " objeto · " : " objetos · ") + fmt(visibleEdges.length) + (visibleEdges.length === 1 ? " relación" : " relaciones");
+  $("#graph-back").disabled = state.explorerHistory.length === 0;
+  $("#graph-details").hidden = !state.inspectorKind;
 
   $$(".graph-node", viewport).forEach(group => group.addEventListener("click", event => {
     event.stopPropagation();
-    state.selectedNodeId = group.dataset.nodeId;
-    inspectNode(state.visibleNodes.get(group.dataset.nodeId) || state.nodeMap.get(group.dataset.nodeId) || {id: group.dataset.nodeId});
-    renderGraph();
+    focusExplorerNode(group.dataset.nodeId);
   }));
   $$(".graph-edge", viewport).forEach(path => path.addEventListener("click", event => {
     event.stopPropagation();
     const edge = state.visibleEdges[Number(path.dataset.edgeIndex)];
-    if (edge) inspectEdge(rawEdgeToStep(edge));
+    if (edge) {
+      inspectEdge(rawEdgeToStep(edge));
+      $("#graph-details").hidden = false;
+      collapseExplorerInspector();
+    }
   }));
   updateGraphTransform();
 }
@@ -730,12 +770,18 @@ function graphScopeIds(nodes, edges) {
     });
   };
 
-  if (state.graphOptions.scope === "active") {
+  if (["outgoing", "incoming", "both"].includes(state.graphOptions.scope) && state.explorerFocusId) {
+    const focus = String(state.explorerFocusId);
+    ids.add(focus);
+    edges.forEach(edge => {
+      const source = endpointId(edge.source);
+      const target = endpointId(edge.target);
+      if ((state.graphOptions.scope === "outgoing" || state.graphOptions.scope === "both") && source === focus) ids.add(target);
+      if ((state.graphOptions.scope === "incoming" || state.graphOptions.scope === "both") && target === focus) ids.add(source);
+    });
+  } else if (state.graphOptions.scope === "active") {
     const path = state.paths[state.activePathIndex];
     (path && path.steps || []).forEach(step => { ids.add(String(step.src)); ids.add(String(step.tgt)); });
-  } else if (state.graphOptions.scope === "selected" && state.selectedNodeId) {
-    ids.add(String(state.selectedNodeId));
-    addNeighbors(new Set([String(state.selectedNodeId)]));
   } else if (state.graphOptions.scope === "tier0") {
     state.highValue.forEach(id => ids.add(id));
     addNeighbors(state.highValue);
@@ -747,10 +793,65 @@ function graphScopeIds(nodes, edges) {
   return ids;
 }
 
+function graphDepthsFromFocus(edges, focus, scope) {
+  const depth = new Map([[focus, scope === "outgoing" ? 0 : 1]]);
+  edges.forEach(edge => {
+    const source = endpointId(edge.source);
+    const target = endpointId(edge.target);
+    if (source === focus && scope !== "incoming") depth.set(target, scope === "both" ? 2 : 1);
+    if (target === focus && scope !== "outgoing") depth.set(source, 0);
+  });
+  return depth;
+}
+
+function focusExplorerNode(id, remember = true) {
+  const next = String(id || "");
+  if (!next || !state.nodeMap.has(next)) return;
+  if (remember && state.explorerFocusId && String(state.explorerFocusId) !== next) {
+    state.explorerHistory.push(String(state.explorerFocusId));
+  }
+  state.explorerFocusId = next;
+  state.selectedNodeId = next;
+  state.graphOptions.scope = "outgoing";
+  state.transform = {x: 0, y: 0, k: 1};
+  inspectNode(state.nodeMap.get(next));
+  collapseExplorerInspector();
+  renderContext();
+  renderGraph();
+}
+
+function explorerBack() {
+  const previous = state.explorerHistory.pop();
+  if (previous) focusExplorerNode(previous, false);
+}
+
+function clearExplorerFocus() {
+  state.explorerFocusId = null;
+  state.explorerHistory = [];
+  state.graphOptions.scope = "relevant";
+  state.graphDrawn = false;
+  renderContext();
+  renderGraph();
+}
+
+function collapseExplorerInspector() {
+  if (state.activeView !== "explorer") return;
+  const shell = $("#app-shell");
+  const inspector = $("#inspector");
+  shell.classList.add("inspector-collapsed");
+  inspector.setAttribute("aria-hidden", "true");
+}
+
+function openExplorerInspector() {
+  $("#app-shell").classList.remove("inspector-collapsed");
+  $("#inspector").removeAttribute("aria-hidden");
+}
+
 function layeredPositions(nodes, depth) {
   const layers = new Map();
   const typeLayer = {User: 0, Computer: 1, Workstation: 1, Server: 1, DomainController: 4, OU: 1, Container: 1, Group: 2, GPO: 2, CertTemplate: 2, CA: 3, Domain: 4};
-  let maxDepth = Math.max(4, ...Array.from(depth.values()));
+  const focusedNavigation = Boolean(state.explorerFocusId && ["outgoing", "incoming", "both"].includes(state.graphOptions.scope));
+  let maxDepth = focusedNavigation ? Math.max(1, ...Array.from(depth.values())) : Math.max(4, ...Array.from(depth.values()));
   nodes.forEach((node, index) => {
     let layer = depth.get(String(node.id));
     if (layer == null) layer = state.highValue.has(String(node.id)) ? maxDepth : (typeLayer[node.type] == null ? index % maxDepth : typeLayer[node.type]);
@@ -761,7 +862,7 @@ function layeredPositions(nodes, depth) {
   const positions = new Map();
   Array.from(layers.keys()).sort((a, b) => a - b).forEach(layer => {
     const bucket = layers.get(layer).sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
-    const x = 90 + (layer / Math.max(1, maxDepth)) * 1100;
+    const x = (focusedNavigation ? 120 : 90) + (layer / Math.max(1, maxDepth)) * (focusedNavigation ? 1000 : 1100);
     const spacing = Math.min(72, 650 / Math.max(1, bucket.length));
     bucket.forEach((node, index) => positions.set(String(node.id), {x, y: 380 + (index - (bucket.length - 1) / 2) * spacing}));
   });
@@ -1025,22 +1126,25 @@ function chooseSearchResult(id) {
   if (!node) return;
   $("#global-search").value = node.name || node.id;
   $("#search-results").hidden = true;
-  state.selectedNodeId = String(id);
-  state.graphOptions.scope = "selected";
-  inspectNode(node);
   switchView("explorer");
-  state.graphDrawn = false;
-  renderGraph();
+  state.explorerHistory = [];
+  focusExplorerNode(id, false);
 }
 
 function switchView(view) {
   if (!document.querySelector('[data-view-panel="' + view + '"]')) return;
   state.activeView = view;
+  $("#app-shell").classList.toggle("explorer-mode", view === "explorer");
   $$(".nav-item[data-view]").forEach(button => button.classList.toggle("active", button.dataset.view === view));
   $$("[data-view-panel]").forEach(panel => panel.classList.toggle("active", panel.dataset.viewPanel === view));
   renderContext();
   if (view === "paths" && state.activePathIndex >= 0) renderPath(state.paths[state.activePathIndex]);
-  if (view === "explorer") renderGraph();
+  if (view === "explorer") {
+    collapseExplorerInspector();
+    renderGraph();
+  } else if (state.inspectorKind) {
+    openExplorerInspector();
+  }
 }
 
 function resetGraph() {
@@ -1096,6 +1200,8 @@ function bindStaticEvents() {
   $("#zoom-in").addEventListener("click", () => zoomGraph(.18));
   $("#zoom-out").addEventListener("click", () => zoomGraph(-.18));
   $("#zoom-reset").addEventListener("click", resetGraph);
+  $("#graph-back").addEventListener("click", explorerBack);
+  $("#graph-details").addEventListener("click", openExplorerInspector);
   const svg = $("#graph-canvas");
   svg.addEventListener("wheel", event => {
     event.preventDefault();

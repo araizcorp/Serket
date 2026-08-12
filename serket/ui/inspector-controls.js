@@ -28,7 +28,12 @@
 
   closeButton.addEventListener("click", closeInspector);
   document.addEventListener("click", event => {
-    if (event.target.closest(".flow-edge,.flow-node,.route-edge,.route-node,.graph-node,.graph-edge,.search-result,.priority-row")) {
+    const graphSelection = event.target.closest(".graph-node,.graph-edge");
+    const explorerActive = document.getElementById("explorer-view")?.classList.contains("active");
+    const explorerSelection = graphSelection || event.target.closest(".search-result");
+    if (explorerSelection && explorerActive) {
+      closeInspector();
+    } else if (event.target.closest(".flow-edge,.flow-node,.route-edge,.route-node,.search-result,.priority-row")) {
       openInspector();
     }
   });
