@@ -135,6 +135,7 @@ class LDAPCollector:
             "started_at": None,
             "completed_at": None,
             "duration_ms": 0,
+            "skipped_schema_attributes": [],
             "stages": {},
         }
 
@@ -148,8 +149,17 @@ class LDAPCollector:
         port   = 636 if self.use_ldaps else 389
         server = Server(self.dc_host, port=port, use_ssl=self.use_ldaps, get_info=ALL)
 
+        # AD schema extensions such as legacy or Windows LAPS are not present
+        # in every domain. Let the DC decide which requested attributes exist
+        # instead of having ldap3 reject an optional attribute client-side.
+        connection_options = {"check_names": False, "auto_bind": True}
+
         if self.kerberos:
-            self.conn = Connection(server, authentication=KERBEROS, auto_bind=True)
+            self.conn = Connection(
+                server,
+                authentication=KERBEROS,
+                **connection_options,
+            )
         elif self.hashes:
             lm, nt  = self._split_hash(self.hashes)
             self.conn = Connection(
@@ -157,7 +167,7 @@ class LDAPCollector:
                 user=f"{self.domain}\\{self.username}",
                 password=f"{lm}:{nt}",
                 authentication=NTLM,
-                auto_bind=True,
+                **connection_options,
             )
         else:
             self.conn = Connection(
@@ -165,7 +175,7 @@ class LDAPCollector:
                 user=f"{self.domain}\\{self.username}",
                 password=self.password or "",
                 authentication=NTLM,
-                auto_bind=True,
+                **connection_options,
             )
 
         info = self.conn.server.info
@@ -185,6 +195,42 @@ class LDAPCollector:
 
     # ── LDAP search helpers ───────────────────────────────────────────────────
 
+    def _supported_attributes(self, attributes: list[str]) -> list[str]:
+        """Return only attributes advertised by the connected DC schema.
+
+        LAPS, gMSA, RBCD, and other AD features extend the directory schema.
+        A collector must not abort merely because a particular extension is
+        absent. If schema metadata is unavailable, the request is left intact
+        and the DC remains authoritative.
+        """
+        try:
+            attribute_types = self.conn.server.schema.attribute_types
+        except AttributeError:
+            return list(attributes)
+
+        if not attribute_types:
+            return list(attributes)
+
+        known = {str(name).casefold() for name in attribute_types}
+        supported: list[str] = []
+        skipped: list[str] = []
+        for attribute in attributes:
+            base_attribute = attribute.split(";", 1)[0]
+            if (
+                base_attribute in {"*", "+", "1.1"}
+                or base_attribute.casefold() in known
+            ):
+                supported.append(attribute)
+            else:
+                skipped.append(attribute)
+
+        recorded = self._telemetry["skipped_schema_attributes"]
+        for attribute in skipped:
+            if attribute not in recorded:
+                recorded.append(attribute)
+
+        return supported or ["1.1"]
+
     def _search(
         self,
         base: str,
@@ -194,6 +240,7 @@ class LDAPCollector:
         controls=None,
     ) -> list[dict]:
         """Paged LDAP search with configurable rate-limit between pages."""
+        attributes = self._supported_attributes(attributes)
         results: list[dict] = []
         cookie  = None
         stage = self._telemetry["stages"].setdefault(
