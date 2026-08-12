@@ -1,7 +1,7 @@
 """
 acl_parser.py — Windows Security Descriptor binary parser.
 
-Parses nTSecurityDescriptor and msDS-AllowedToActOnBehalfOf attributes
+Parses nTSecurityDescriptor and msDS-AllowedToActOnBehalfOfOtherIdentity attributes
 returned from LDAP as raw bytes, without requiring impacket.
 
 Reference:
@@ -52,7 +52,7 @@ EXT_RIGHT = {
 PROP_GUID = {
     "bf9679c0-0de6-11d0-a285-00aa003049e2": "member",             # AddMember
     "5b47d60f-6090-40b2-9f37-2a4de88f3063": "msDS-KeyCredentialLink",  # Shadow Creds
-    "3f78c3e5-f79a-46bd-a0b8-9d18116ddc79": "msDS-AllowedToActOnBehalfOf",  # RBCD
+    "3f78c3e5-f79a-46bd-a0b8-9d18116ddc79": "msDS-AllowedToActOnBehalfOfOtherIdentity",  # RBCD
     "bf967a68-0de6-11d0-a285-00aa003049e2": "userAccountControl",
 }
 
@@ -214,7 +214,7 @@ def _classify_ace(mask: int, obj_guid: Optional[str]) -> Optional[str]:
             return "AddMember"
         if prop == "msDS-KeyCredentialLink":
             return "ShadowCredentials"
-        if prop == "msDS-AllowedToActOnBehalfOf":
+        if prop == "msDS-AllowedToActOnBehalfOfOtherIdentity":
             return "WriteRBCD"
         return "GenericWrite"
 

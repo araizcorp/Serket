@@ -285,7 +285,7 @@ class LDAPCollector:
                 "objectSid", "memberOf", "userAccountControl",
                 "servicePrincipalName", "adminCount", "description",
                 "mail", "pwdLastSet", "lastLogon",
-                "msDS-AllowedToActOnBehalfOf", "msDS-AllowedToDelegateTo",
+                "msDS-AllowedToActOnBehalfOfOtherIdentity", "msDS-AllowedToDelegateTo",
                 "sIDHistory",
             ],
         )
@@ -306,7 +306,7 @@ class LDAPCollector:
             enabled  = not bool(uac & UAC_ACCOUNTDISABLE)
 
             # RBCD trustees on this user (who can impersonate TO this account)
-            rbcd_raw = attrs.get("msDS-AllowedToActOnBehalfOf")
+            rbcd_raw = attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity")
             rbcd_trustees = []
             if isinstance(rbcd_raw, bytes):
                 for ace in parse_security_descriptor(rbcd_raw):
@@ -363,7 +363,7 @@ class LDAPCollector:
                 "objectSid", "memberOf", "userAccountControl",
                 "servicePrincipalName", "adminCount",
                 "msDS-ManagedPassword", "msDS-GroupMSAMembership",
-                "msDS-AllowedToActOnBehalfOf", "msDS-AllowedToDelegateTo",
+                "msDS-AllowedToActOnBehalfOfOtherIdentity", "msDS-AllowedToDelegateTo",
             ],
         )
 
@@ -380,7 +380,7 @@ class LDAPCollector:
             uac = attrs.get("userAccountControl", 0) or 0
 
             rbcd_trustees = []
-            rbcd_raw = attrs.get("msDS-AllowedToActOnBehalfOf")
+            rbcd_raw = attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity")
             if isinstance(rbcd_raw, bytes):
                 for ace in parse_security_descriptor(rbcd_raw):
                     if ace.get("sid"):
@@ -469,7 +469,7 @@ class LDAPCollector:
                 "samAccountName", "dNSHostName", "distinguishedName",
                 "objectSid", "userAccountControl", "operatingSystem",
                 "memberOf", "msDS-AllowedToDelegateTo",
-                "msDS-AllowedToActOnBehalfOf",
+                "msDS-AllowedToActOnBehalfOfOtherIdentity",
                 # Legacy Microsoft LAPS and modern Windows LAPS. Values are
                 # returned only when the bound identity has read permission.
                 "ms-Mcs-AdmPwd", "ms-Mcs-AdmPwdExpirationTime",
@@ -494,7 +494,7 @@ class LDAPCollector:
             unconstrained = bool(uac & UAC_TRUSTED_FOR_DELEGATION)
             constrained   = bool(uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION)
 
-            rbcd_raw = attrs.get("msDS-AllowedToActOnBehalfOf")
+            rbcd_raw = attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity")
             rbcd_trustees = []
             if isinstance(rbcd_raw, bytes):
                 for ace in parse_security_descriptor(rbcd_raw):

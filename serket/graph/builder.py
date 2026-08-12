@@ -216,11 +216,11 @@ class ADGraph:
                     _add_edge(self.G, sid, sid, "ConstrainedDelegation",
                               detail=f"S4U2Proxy to: {target_spn}")
 
-            # RBCD: principals that have write access to this user's msDS-AllowedToActOnBehalfOf
+            # RBCD: principals that can act through this user's resource-based delegation descriptor
             for trustee_sid in u.get("rbcd_trustees", []):
                 if trustee_sid in self.G:
                     _add_edge(self.G, trustee_sid, sid, "RBCD",
-                              detail="msDS-AllowedToActOnBehalfOf → impersonate any user")
+                              detail="msDS-AllowedToActOnBehalfOfOtherIdentity → impersonate any user")
 
     # ── Computer attack edges ─────────────────────────────────────────────────
 
@@ -243,7 +243,7 @@ class ADGraph:
             for trustee_sid in c.get("rbcd_trustees", []):
                 if trustee_sid in self.G:
                     _add_edge(self.G, trustee_sid, sid, "RBCD",
-                              detail="msDS-AllowedToActOnBehalfOf → impersonate any user")
+                              detail="msDS-AllowedToActOnBehalfOfOtherIdentity → impersonate any user")
 
     # ── ACL edges ────────────────────────────────────────────────────────────
 

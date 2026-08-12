@@ -1,5 +1,6 @@
 import unittest
 
+from serket.collector.acl_parser import PROP_GUID
 from serket.collector.ldap_collector import LDAPCollector
 
 
@@ -53,6 +54,28 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(
             collector._telemetry["stages"]["Enumerating users"]["entries"],
             1,
+        )
+
+    def test_rbcd_queries_use_canonical_ldap_attribute(self):
+        collector = self.collector()
+        queries = []
+        collector._search = lambda _base, _filter, attributes, *args, **kwargs: (
+            queries.append(attributes) or []
+        )
+
+        collector.collect_users()
+        collector.collect_gmsa()
+        collector.collect_computers()
+
+        canonical = "msDS-AllowedToActOnBehalfOfOtherIdentity"
+        shortened = "msDS-AllowedToActOnBehalfOf"
+        self.assertEqual(len(queries), 3)
+        for attributes in queries:
+            self.assertIn(canonical, attributes)
+            self.assertNotIn(shortened, attributes)
+        self.assertEqual(
+            PROP_GUID["3f78c3e5-f79a-46bd-a0b8-9d18116ddc79"],
+            canonical,
         )
 
     def test_gmsa_has_dedicated_model_and_never_persists_blob(self):
