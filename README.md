@@ -90,7 +90,9 @@ Open <http://127.0.0.1:8080>. Native mode binds only to loopback and normally op
 
 ## Install for native collection
 
-Clone the repository and install Serket inside a virtual environment:
+Serket requires Python 3.10 or later. The installation creates the `serket` command; do not run the tool with `python serket.py` after installing it.
+
+### Kali Linux, Linux and macOS
 
 ```bash
 git clone https://github.com/araizcorp/Serket.git
@@ -99,9 +101,41 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install .
+hash -r
+serket --help
 ```
 
-The installation creates the `serket` console command, so the tool can be run from any directory while that environment is active. For an isolated user-wide command, install with `pipx install .`. On Linux, `./install.sh --venv` provides the same virtual-environment setup. On Windows use `py` or `python` and activate with `.\.venv\Scripts\Activate.ps1`.
+On Kali or any other Linux distribution, **do not use `py -m pip install .`**. `py` is the Windows Python launcher and may be an unrelated command on Linux. Once the virtual environment is active, use `python -m pip install .` as shown above.
+
+The `serket` command works from any directory while the virtual environment is active. To use it in a later terminal, activate the same environment again:
+
+```bash
+source /path/to/Serket/.venv/bin/activate
+serket --help
+```
+
+If `pipx` is already installed and you want `serket` on your user `PATH` without activating a virtual environment each time, run this from the cloned repository:
+
+```bash
+pipx install .
+pipx ensurepath
+```
+
+Open a new terminal after `pipx ensurepath`, then verify the command with `serket --help`.
+
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/araizcorp/Serket.git
+Set-Location Serket
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install .
+serket --help
+```
+
+`py` is used only to create the environment on Windows. If the launcher is unavailable, replace that first `py` with `python`. After activation, use `python -m pip` so the package and the `serket` command are installed in the active environment.
 
 ## Collect an authorized domain
 

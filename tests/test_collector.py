@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from serket.collector.acl_parser import PROP_GUID
 from serket.collector.ldap_collector import LDAPCollector
@@ -8,8 +10,10 @@ class FakeConnection:
     def __init__(self):
         self.response = []
         self.result = {}
+        self.last_search = {}
 
     def search(self, **kwargs):
+        self.last_search = kwargs
         self.response = [
             {
                 "type": "searchResEntry",
@@ -36,6 +40,30 @@ class CollectorTests(unittest.TestCase):
         collector.base_dn = "DC=lab,DC=example"
         return collector
 
+    @patch("serket.collector.ldap_collector.Connection")
+    @patch("serket.collector.ldap_collector.Server")
+    def test_connect_allows_optional_ad_schema_attributes(
+        self, server_class, connection_class
+    ):
+        collector = self.collector()
+        server = SimpleNamespace(
+            info=SimpleNamespace(
+                other={
+                    "defaultNamingContext": ["DC=lab,DC=example"],
+                    "configurationNamingContext": [
+                        "CN=Configuration,DC=lab,DC=example"
+                    ],
+                }
+            )
+        )
+        server_class.return_value = server
+        connection_class.return_value = SimpleNamespace(server=server)
+
+        collector.connect()
+
+        self.assertFalse(connection_class.call_args.kwargs["check_names"])
+        self.assertTrue(connection_class.call_args.kwargs["auto_bind"])
+
     def test_search_records_auditable_telemetry(self):
         collector = self.collector()
         collector.conn = FakeConnection()
@@ -54,6 +82,25 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(
             collector._telemetry["stages"]["Enumerating users"]["entries"],
             1,
+        )
+
+    def test_search_skips_attributes_missing_from_dc_schema(self):
+        collector = self.collector()
+        collector.conn = FakeConnection()
+        collector.conn.server = SimpleNamespace(
+            schema=SimpleNamespace(attribute_types={"cn": object()})
+        )
+
+        collector._search(
+            collector.base_dn,
+            "(objectClass=computer)",
+            ["cn", "ms-Mcs-AdmPwd", "msLAPS-Password"],
+        )
+
+        self.assertEqual(collector.conn.last_search["attributes"], ["cn"])
+        self.assertEqual(
+            collector._telemetry["skipped_schema_attributes"],
+            ["ms-Mcs-AdmPwd", "msLAPS-Password"],
         )
 
     def test_rbcd_queries_use_canonical_ldap_attribute(self):

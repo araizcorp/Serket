@@ -67,7 +67,9 @@ Abre <http://127.0.0.1:8080>. El modo nativo escucha únicamente en loopback.
 
 ## Instalación
 
-Serket requiere Python 3.10 o posterior.
+Serket requiere Python 3.10 o posterior. La instalación crea el comando `serket`; después de instalarlo no es necesario ejecutar la herramienta con `python serket.py`.
+
+### Kali Linux, Linux y macOS
 
 ```bash
 git clone https://github.com/araizcorp/Serket.git
@@ -76,9 +78,41 @@ python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install .
+hash -r
+serket --help
 ```
 
-La instalación crea el comando de consola `serket`, que puede ejecutarse desde cualquier directorio mientras el entorno esté activo. Para disponer de un comando aislado a nivel de usuario, instala con `pipx install .`. En Linux, `./install.sh --venv` realiza la misma preparación. En Windows utiliza `py` o `python` y activa el entorno con `.\.venv\Scripts\Activate.ps1`.
+En Kali o cualquier otra distribución Linux, **no utilices `py -m pip install .`**. `py` es el lanzador de Python de Windows y en Linux puede corresponder a otro programa. Con el entorno virtual activo, utiliza `python -m pip install .` como se muestra arriba.
+
+El comando `serket` funciona desde cualquier directorio mientras el entorno virtual esté activo. Para utilizarlo en otra terminal, vuelve a activar ese mismo entorno:
+
+```bash
+source /ruta/a/Serket/.venv/bin/activate
+serket --help
+```
+
+Si ya tienes `pipx` instalado y quieres disponer de `serket` en el `PATH` de tu usuario sin activar el entorno virtual cada vez, ejecuta lo siguiente desde el repositorio clonado:
+
+```bash
+pipx install .
+pipx ensurepath
+```
+
+Abre una terminal nueva después de `pipx ensurepath` y comprueba el comando con `serket --help`.
+
+### Windows PowerShell
+
+```powershell
+git clone https://github.com/araizcorp/Serket.git
+Set-Location Serket
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install .
+serket --help
+```
+
+`py` se utiliza únicamente para crear el entorno en Windows. Si el lanzador no está disponible, sustituye ese primer `py` por `python`. Después de activar el entorno, utiliza `python -m pip` para instalar el paquete y el comando `serket` dentro del entorno activo.
 
 ## Recopilar un dominio autorizado
 
