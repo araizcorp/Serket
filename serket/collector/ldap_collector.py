@@ -73,6 +73,13 @@ def _has_password_hint(description: str) -> bool:
     return bool(_PASSWD_RE.search(description)) if description else False
 
 
+def _first(val, default=None):
+    """Return the first value for LDAP attributes represented as a list."""
+    if isinstance(val, (list, tuple)):
+        return val[0] if val else default
+    return default if val is None else val
+
+
 def _as_list(val) -> list:
     if val is None:
         return []
@@ -82,11 +89,17 @@ def _as_list(val) -> list:
 
 
 def _str(val) -> str:
-    if val is None:
-        return ""
-    if isinstance(val, list):
-        return val[0] if val else ""
-    return str(val)
+    value = _first(val, "")
+    return "" if value is None else str(value)
+
+
+def _int(val, default: int = 0) -> int:
+    """Normalize LDAP integer attributes returned as scalars or one-item lists."""
+    value = _first(val, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 class LDAPCollector:
@@ -305,17 +318,18 @@ class LDAPCollector:
             return {}
 
         attrs = entries[0]["attributes"]
-        raw_sid = attrs.get("objectSid")
-        if isinstance(raw_sid, bytes):
-            self.domain_sid = parse_sid(raw_sid)
+        raw_sid = _first(attrs.get("objectSid"))
+        self.domain_sid = (
+            parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
+        )
 
         result = {
             "name":              self.domain,
             "dn":                self.base_dn,
             "sid":               self.domain_sid,
-            "min_pwd_length":    attrs.get("minPwdLength", 0),
-            "lockout_threshold": attrs.get("lockoutThreshold", 0),
-            "maq":               attrs.get("ms-DS-MachineAccountQuota", 10),
+            "min_pwd_length":    _int(attrs.get("minPwdLength")),
+            "lockout_threshold": _int(attrs.get("lockoutThreshold")),
+            "maq":               _int(attrs.get("ms-DS-MachineAccountQuota"), 10),
         }
         self._sid_name[self.domain_sid] = self.domain
         return result
@@ -340,20 +354,20 @@ class LDAPCollector:
         users: dict[str, dict] = {}
         for entry in entries:
             attrs = entry["attributes"]
-            raw_sid = attrs.get("objectSid")
+            raw_sid = _first(attrs.get("objectSid"))
             sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
             if not sid:
                 continue
 
             sam      = _str(attrs.get("samAccountName"))
             dn       = entry["dn"]
-            uac      = attrs.get("userAccountControl", 0) or 0
+            uac      = _int(attrs.get("userAccountControl"))
             spns     = _as_list(attrs.get("servicePrincipalName"))
             members  = _as_list(attrs.get("memberOf"))
             enabled  = not bool(uac & UAC_ACCOUNTDISABLE)
 
             # RBCD trustees on this user (who can impersonate TO this account)
-            rbcd_raw = attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity")
+            rbcd_raw = _first(attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity"))
             rbcd_trustees = []
             if isinstance(rbcd_raw, bytes):
                 for ace in parse_security_descriptor(rbcd_raw):
@@ -378,7 +392,7 @@ class LDAPCollector:
                 "uac":                    uac,
                 "spns":                   spns,
                 "member_of_dns":          members,
-                "admin_count":            attrs.get("adminCount", 0) or 0,
+                "admin_count":            _int(attrs.get("adminCount")),
                 "enabled":                enabled,
                 "kerberoastable":         enabled and bool(spns) and not sam.endswith("$"),
                 "asreproastable":         bool(uac & UAC_DONT_REQ_PREAUTH),
@@ -417,17 +431,17 @@ class LDAPCollector:
         accounts: dict[str, dict] = {}
         for entry in entries:
             attrs = entry["attributes"]
-            raw_sid = attrs.get("objectSid")
+            raw_sid = _first(attrs.get("objectSid"))
             sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
             if not sid:
                 continue
 
             sam = _str(attrs.get("samAccountName"))
             dn = entry["dn"]
-            uac = attrs.get("userAccountControl", 0) or 0
+            uac = _int(attrs.get("userAccountControl"))
 
             rbcd_trustees = []
-            rbcd_raw = attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity")
+            rbcd_raw = _first(attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity"))
             if isinstance(rbcd_raw, bytes):
                 for ace in parse_security_descriptor(rbcd_raw):
                     if ace.get("sid"):
@@ -441,7 +455,7 @@ class LDAPCollector:
                 "uac": uac,
                 "spns": _as_list(attrs.get("servicePrincipalName")),
                 "member_of_dns": _as_list(attrs.get("memberOf")),
-                "admin_count": attrs.get("adminCount", 0) or 0,
+                "admin_count": _int(attrs.get("adminCount")),
                 "enabled": not bool(uac & UAC_ACCOUNTDISABLE),
                 # gMSA passwords are high-entropy and should not be treated as
                 # ordinary Kerberoast targets merely because an SPN exists.
@@ -479,7 +493,7 @@ class LDAPCollector:
         groups: dict[str, dict] = {}
         for entry in entries:
             attrs   = entry["attributes"]
-            raw_sid = attrs.get("objectSid")
+            raw_sid = _first(attrs.get("objectSid"))
             sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
             if not sid:
                 continue
@@ -496,7 +510,7 @@ class LDAPCollector:
                 "dn":           dn,
                 "member_dns":   _as_list(attrs.get("member")),
                 "member_of_dns": _as_list(attrs.get("memberOf")),
-                "admin_count":  attrs.get("adminCount", 0) or 0,
+                "admin_count":  _int(attrs.get("adminCount")),
                 "high_value":   high_value,
                 "description":  _str(attrs.get("description")),
             }
@@ -528,20 +542,20 @@ class LDAPCollector:
         computers: dict[str, dict] = {}
         for entry in entries:
             attrs   = entry["attributes"]
-            raw_sid = attrs.get("objectSid")
+            raw_sid = _first(attrs.get("objectSid"))
             sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
             if not sid:
                 continue
 
             sam = _str(attrs.get("samAccountName"))
             dn  = entry["dn"]
-            uac = attrs.get("userAccountControl", 0) or 0
+            uac = _int(attrs.get("userAccountControl"))
 
             is_dc         = bool(uac & UAC_SERVER_TRUST)
             unconstrained = bool(uac & UAC_TRUSTED_FOR_DELEGATION)
             constrained   = bool(uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION)
 
-            rbcd_raw = attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity")
+            rbcd_raw = _first(attrs.get("msDS-AllowedToActOnBehalfOfOtherIdentity"))
             rbcd_trustees = []
             if isinstance(rbcd_raw, bytes):
                 for ace in parse_security_descriptor(rbcd_raw):
@@ -606,9 +620,9 @@ class LDAPCollector:
             )
             for entry in entries:
                 attrs   = entry["attributes"]
-                raw_sd  = attrs.get("nTSecurityDescriptor")
+                raw_sd  = _first(attrs.get("nTSecurityDescriptor"))
                 tgt_dn  = entry["dn"]
-                raw_sid = attrs.get("objectSid")
+                raw_sid = _first(attrs.get("objectSid"))
                 tgt_sid = parse_sid(raw_sid) if isinstance(raw_sid, bytes) else _str(raw_sid)
 
                 if not isinstance(raw_sd, bytes):
@@ -674,21 +688,21 @@ class LDAPCollector:
         templates = []
         for entry in tmpl_entries:
             attrs   = entry["attributes"]
-            name_flag  = attrs.get("msPKI-Certificate-Name-Flag", 0) or 0
-            enroll_flag = attrs.get("msPKI-Enrollment-Flag", 0) or 0
+            name_flag  = _int(attrs.get("msPKI-Certificate-Name-Flag"))
+            enroll_flag = _int(attrs.get("msPKI-Enrollment-Flag"))
             ekus       = _as_list(attrs.get("pKIExtendedKeyUsage"))
-            ra_sigs    = attrs.get("msPKI-RA-Signature", 0) or 0
+            ra_sigs    = _int(attrs.get("msPKI-RA-Signature"))
 
             # ESC1: enrolleeSuppliesSubject + clientAuth EKU + no manager approval
             esc1 = (
                 bool(name_flag & ENROLLEE_SUPPLIES_SUBJECT) and
                 (CLIENT_AUTH_OID in ekus or SMARTCARD_LOGON_OID in ekus) and
                 not bool(enroll_flag & PEND_ALL_REQUESTS) and
-                int(ra_sigs) == 0
+                ra_sigs == 0
             )
 
             # Parse enrollment ACL
-            raw_sd = attrs.get("nTSecurityDescriptor")
+            raw_sd = _first(attrs.get("nTSecurityDescriptor"))
             enroll_aces = []
             if isinstance(raw_sd, bytes):
                 for ace in parse_security_descriptor(raw_sd):
@@ -755,9 +769,9 @@ class LDAPCollector:
         return [
             {
                 "partner":    _str(e["attributes"].get("trustPartner")),
-                "direction":  directions.get(e["attributes"].get("trustDirection", 0), "Unknown"),
-                "trust_type": e["attributes"].get("trustType", 0),
-                "attributes": e["attributes"].get("trustAttributes", 0),
+                "direction":  directions.get(_int(e["attributes"].get("trustDirection")), "Unknown"),
+                "trust_type": _int(e["attributes"].get("trustType")),
+                "attributes": _int(e["attributes"].get("trustAttributes")),
             }
             for e in entries
         ]

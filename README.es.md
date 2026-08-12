@@ -173,13 +173,29 @@ serket_corp_local_YYYYMMDD_HHMMSS.json
 serket_corp_local_YYYYMMDD_HHMMSS_report.txt
 ```
 
-Ver el informe en terminal:
+### Abrir el resultado más reciente en el Workbench
+
+Cuando termine la recopilación, inicia la interfaz web sin tener que localizar el JSON manualmente:
+
+```bash
+serket server
+```
+
+Este comando abre el resultado más reciente de `~/.serket/results/`. Para seleccionar el último resultado de un dominio concreto:
+
+```bash
+serket server -d corp.local
+```
+
+Utiliza `--port 9090` para elegir otro puerto local o `--output DIR` si guardaste la recopilación fuera del directorio predeterminado. El Workbench solo escucha en `127.0.0.1`.
+
+### Ver un resultado en terminal
 
 ```bash
 serket --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json
 ```
 
-Abrir el Workbench:
+### Abrir un JSON concreto en el Workbench
 
 ```bash
 serket --serve ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json --port 8080
