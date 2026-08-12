@@ -83,7 +83,14 @@ def create_app(data: dict[str, Any]):
 
     @app.get("/api/stats")
     async def api_stats():
-        return data.get("stats", {})
+        stats = dict(data.get("stats", {}))
+        stats["systems"] = data.get("system_counts", {})
+        stats["quality"] = data.get("quality", {})
+        return stats
+
+    @app.get("/api/coverage")
+    async def api_coverage():
+        return data.get("coverage", {})
 
     @app.get("/api/surface")
     async def api_surface():

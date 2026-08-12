@@ -1,10 +1,11 @@
 import unittest
+import struct
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from ldap3.protocol.convert import build_controls_list
 
-from serket.collector.acl_parser import PROP_GUID
+from serket.collector.acl_parser import GENERIC_ALL, PROP_GUID
 from serket.collector.ldap_collector import (
     LDAPCollector,
     UAC_DONT_REQ_PREAUTH,
@@ -35,6 +36,14 @@ class FakeConnection:
 
 
 class CollectorTests(unittest.TestCase):
+    @staticmethod
+    def sid_bytes(*subauthorities: int) -> bytes:
+        return (
+            bytes([1, len(subauthorities)])
+            + (5).to_bytes(6, "big")
+            + b"".join(struct.pack("<I", value) for value in subauthorities)
+        )
+
     def collector(self):
         collector = LDAPCollector(
             dc_host="dc.lab.example",
@@ -127,7 +136,7 @@ class CollectorTests(unittest.TestCase):
         collector.config_dn = "CN=Configuration,DC=lab,DC=example"
         collector.collect_adcs()
 
-        self.assertEqual(len(captured), 5)
+        self.assertEqual(len(captured), 4)
         for controls in captured:
             self.assertEqual(len(controls), 1)
             self.assertNotIsInstance(controls[0], list)
@@ -160,6 +169,110 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(user["uac"], UAC_DONT_REQ_PREAUTH)
         self.assertEqual(user["admin_count"], 1)
         self.assertTrue(user["asreproastable"])
+
+    def test_raw_sid_wins_over_corrupt_decoded_attribute(self):
+        collector = self.collector()
+        sid = "S-1-5-21-1-2-3-512"
+        collector._search = lambda *args, **kwargs: [{
+            "dn": "CN=Domain Admins,CN=Users,DC=lab,DC=example",
+            "attributes": {
+                "samAccountName": "Domain Admins",
+                "objectSid": "\x01\x05corrupt",
+                "member": [],
+                "memberOf": [],
+                "adminCount": 1,
+            },
+            "raw_attributes": {
+                "objectSid": [self.sid_bytes(21, 1, 2, 3, 512)],
+            },
+        }]
+
+        groups = collector.collect_groups()
+
+        self.assertIn(sid, groups)
+        self.assertTrue(groups[sid]["high_value"])
+
+    def test_acl_uses_raw_security_descriptor_and_target_sid(self):
+        collector = self.collector()
+        trustee = self.sid_bytes(21, 1, 2, 3, 1100)
+        target = self.sid_bytes(21, 1, 2, 3, 2100)
+        ace_body = struct.pack("<I", GENERIC_ALL) + trustee
+        ace = bytes([0, 0]) + struct.pack("<H", 4 + len(ace_body)) + ace_body
+        acl = struct.pack("<BBHHH", 2, 0, 8 + len(ace), 1, 0) + ace
+        descriptor = struct.pack("<BBHLLLL", 1, 0, 0x8004, 0, 0, 0, 20) + acl
+        collector._search = lambda *args, **kwargs: [{
+            "dn": "CN=Target,CN=Users,DC=lab,DC=example",
+            "attributes": {
+                "objectSid": "corrupt-target",
+                "nTSecurityDescriptor": "corrupt-descriptor",
+                "objectClass": ["top", "group"],
+                "samAccountName": "Target",
+            },
+            "raw_attributes": {
+                "objectSid": [target],
+                "nTSecurityDescriptor": [descriptor],
+            },
+        }]
+
+        permissions = collector.collect_acls()
+
+        generic_all = next(item for item in permissions if item["edge_type"] == "GenericAll")
+        self.assertEqual(generic_all["sid"], "S-1-5-21-1-2-3-1100")
+        self.assertEqual(generic_all["target_sid"], "S-1-5-21-1-2-3-2100")
+        self.assertEqual(generic_all["target_type"], "Group")
+
+    @patch("serket.collector.ldap_collector.parse_security_descriptor")
+    def test_dcsync_is_derived_from_both_replication_rights(self, parse_descriptor):
+        collector = self.collector()
+        trustee_sid = "S-1-5-21-1-2-3-1100"
+        parse_descriptor.return_value = [
+            {"sid": trustee_sid, "edge_type": "GetChanges", "object_guid": "a", "ace_flags": 0},
+            {"sid": trustee_sid, "edge_type": "GetChangesAll", "object_guid": "b", "ace_flags": 0},
+        ]
+        collector._search = lambda *args, **kwargs: [{
+            "dn": collector.base_dn,
+            "attributes": {
+                "objectSid": "corrupt",
+                "objectClass": ["top", "domainDNS"],
+                "name": "lab",
+            },
+            "raw_attributes": {
+                "objectSid": [self.sid_bytes(21, 1, 2, 3)],
+                "nTSecurityDescriptor": [b"descriptor"],
+            },
+        }]
+
+        permissions = collector.collect_acls()
+
+        dcsync = [item for item in permissions if item["edge_type"] == "DCSync"]
+        self.assertEqual(len(dcsync), 1)
+        self.assertEqual(dcsync[0]["sid"], trustee_sid)
+
+    @patch("serket.collector.ldap_collector.parse_security_descriptor")
+    def test_single_replication_right_is_not_promoted_to_dcsync(self, parse_descriptor):
+        collector = self.collector()
+        parse_descriptor.return_value = [{
+            "sid": "S-1-5-21-1-2-3-1100",
+            "edge_type": "GetChangesAll",
+            "object_guid": "b",
+            "ace_flags": 0,
+        }]
+        collector._search = lambda *args, **kwargs: [{
+            "dn": collector.base_dn,
+            "attributes": {
+                "objectSid": "corrupt",
+                "objectClass": ["top", "domainDNS"],
+                "name": "lab",
+            },
+            "raw_attributes": {
+                "objectSid": [self.sid_bytes(21, 1, 2, 3)],
+                "nTSecurityDescriptor": [b"descriptor"],
+            },
+        }]
+
+        permissions = collector.collect_acls()
+
+        self.assertFalse(any(item["edge_type"] == "DCSync" for item in permissions))
 
     def test_rbcd_queries_use_canonical_ldap_attribute(self):
         collector = self.collector()
@@ -229,6 +342,35 @@ class CollectorTests(unittest.TestCase):
         self.assertTrue(computer["laps_readable"])
         self.assertEqual(computer["laps_scheme"], "Windows LAPS")
         self.assertNotIn("is_gmsa", computer)
+
+    def test_computers_are_classified_by_role(self):
+        collector = self.collector()
+        entries = []
+        fixtures = [
+            (1301, "WS01$", "Windows 11 Enterprise", 0, "workstation"),
+            (1302, "APP01$", "Windows Server 2022", 0, "server"),
+            (1303, "DC01$", "Windows Server 2022", 0x2000, "domain_controller"),
+        ]
+        for rid, name, os_name, uac, _role in fixtures:
+            entries.append({
+                "dn": f"CN={name},CN=Computers,DC=lab,DC=example",
+                "attributes": {
+                    "samAccountName": name,
+                    "objectSid": "corrupt",
+                    "userAccountControl": uac,
+                    "operatingSystem": os_name,
+                    "memberOf": [],
+                },
+                "raw_attributes": {
+                    "objectSid": [self.sid_bytes(21, 1, 2, 3, rid)],
+                },
+            })
+        collector._search = lambda *args, **kwargs: entries
+
+        computers = collector.collect_computers()
+
+        for rid, _name, _os_name, _uac, role in fixtures:
+            self.assertEqual(computers[f"S-1-5-21-1-2-3-{rid}"]["computer_role"], role)
 
 
 if __name__ == "__main__":

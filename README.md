@@ -27,9 +27,10 @@ Serket is not presented as “undetectable.” Its controlled collection profile
 
 | Capability | Status | Notes |
 |---|---:|---|
-| LDAP collection | Available | Users, groups, computers, domain policy, GPOs, trusts, selected ACLs and AD CS data |
+| LDAP/DC-only collection | Available | Users, groups, systems, domain policy, OU/container hierarchy, GPOs, trusts, owner+DACL permissions and AD CS data |
+| System classification | Available | Workstations, member servers and domain controllers are modeled and counted separately |
 | Authentication | Available | Password prompt, NTLM hash, Kerberos cache and optional LDAPS |
-| Relationship graph | Available | Directed graph with transitive group membership and permission/delegation edges |
+| Relationship graph | Available | Directed multigraph; parallel permissions are preserved instead of overwriting one another |
 | Global path analysis | Available | OPSEC-weighted Dijkstra paths to high-value nodes |
 | Interactive path query | Available | Choose a loaded source and target/Tier 0; computation uses the saved graph and does not query AD again |
 | Universal search | Available | Name, SID, UPN, DN, DNS name and `sAMAccountName` |
@@ -39,7 +40,7 @@ Serket is not presented as “undetectable.” Its controlled collection profile
 | AD CS classification | Partial | Automated ESC1 classification only |
 | Trust analysis | Partial | Trust objects are enumerated; advanced abuse conclusions are not inferred yet |
 | Detection validation | Partial | Guidance and expected telemetry are shown; live SIEM/EDR evidence import is not implemented yet |
-| `.serket` portable package | Planned | Current result format is JSON plus a text report |
+| Collection bundle | Available | Manifest plus separate JSON files for identities, systems, permissions, directory structure, AD CS, graph and analysis |
 
 ## How it works
 
@@ -48,7 +49,7 @@ flowchart LR
     A["Authorized LDAP session"] --> B["Collector"]
     B --> C["Directed relationship graph"]
     C --> D["Path and exposure analysis"]
-    D --> E["JSON result + text report"]
+    D --> E["Manifest + categorized JSON files + text report"]
     E --> F["Local read-only API"]
     F --> G["Serket Workbench"]
 ```
@@ -193,30 +194,53 @@ serket \
 | `-dc HOST` | Override automatic AD DNS discovery and use a specific controller |
 | `--rate-limit SEC` | Delay between LDAP result pages; default `0.08` seconds |
 | `--max-paths N` | Maximum global paths saved; default `20` |
-| `--no-acls` | Skip DACL-only ACL collection; faster but removes important permission edges |
+| `--no-acls` | Skip owner and DACL collection; faster but removes important permission edges |
 | `--no-adcs` | Skip certificate-template enumeration |
 | `--ldaps` | Use LDAP over TLS on port 636 |
 | `-o DIR` | Select the output directory |
 | `--quiet` | Suppress progress output for machine-oriented execution |
 
-ACL and ADCS descriptor queries automatically request only the DACL through the Microsoft LDAP security-descriptor control. No additional flag or dependency is required.
+ACL and ADCS descriptor queries automatically request the owner and DACL through the Microsoft LDAP security-descriptor control. No additional flag or dependency is required. `--no-acls` and `--no-adcs` are applied to the collection pipeline; they are not display-only switches.
+
+### Collection coverage: LDAP/DC-only versus host data
+
+The standard Serket run is an LDAP/DC-only collection. It covers the directory-structure portion expected from a BloodHound-style collector: object properties, security-group memberships, trusts, OU/container structure, GPO links, relevant owner/DACL permissions on users, groups, systems, GPOs, OUs, containers and the domain, plus the currently supported AD CS objects.
+
+It does **not** contact every domain-joined host. Consequently, a standard run does not claim host-derived relationships such as `HasSession`, local `AdminTo`, `CanRDP`, `ExecuteDCOM`, `CanPSRemote` or `SQLAdmin`. Those require SMB/RPC, registry or host telemetry and a different authorization/noise profile. Every result records this distinction under `coverage` so an absent relationship is not presented as evidence that it does not exist. This follows the directory/DC-only versus computer-collection distinction in the [SharpHound collection methods](https://bloodhound.specterops.io/collect-data/ce-collection/sharphound-flags).
 
 Run `serket --help` for the complete CLI reference. The legacy `python serket.py` entry point remains available from a source checkout.
 
 ## Results
 
-By default Serket writes to `~/.serket/results/`:
+By default Serket writes one collection directory below `~/.serket/results/`:
 
 ```text
-serket_corp_local_YYYYMMDD_HHMMSS.json
-serket_corp_local_YYYYMMDD_HHMMSS_report.txt
+serket_corp_local_YYYYMMDD_HHMMSS/
+├── manifest.json
+├── domain.json
+├── users.json
+├── groups.json
+├── computers.json
+├── directory_objects.json
+├── gpos.json
+├── trusts.json
+├── permissions.json
+├── adcs.json
+├── summary.json
+├── graph.json
+├── analysis.json
+└── report.txt
 ```
 
-The JSON contains metadata, collection telemetry, graph nodes and edges, derived exposure summaries and calculated paths. Treat it as sensitive assessment evidence even when it does not contain passwords.
+`manifest.json` declares the bundle schema and component files. Splitting object families makes incomplete or unexpectedly empty collection stages visible and lets the loader validate the package before composing one logical result. The graph and path engine still operate over the unified in-memory dataset. Treat the entire directory as sensitive assessment evidence even when it does not contain passwords; do not move only some component files.
+
+`serket server`, `--load` and `--serve` accept either the collection directory or its `manifest.json`. Legacy single-file Serket JSON remains readable.
+
+Results produced by the affected early v2.0 collector, where binary SID bytes were serialized as unreadable text, are repaired in memory when loaded. This restores canonical identity IDs, workstation/server/DC classification, Tier-0 marking and membership-derived paths. It cannot restore ACL relationships that were never written to the old file; run a fresh collection for complete owner/DACL coverage.
 
 ### Open the latest result in the Workbench
 
-After a collection finishes, start the web interface without locating the JSON manually:
+After a collection finishes, start the web interface without locating the bundle manually:
 
 ```bash
 serket server
@@ -233,20 +257,20 @@ Use `--port 9090` to select another local port or `--output DIR` if the collecti
 ### Read a saved result in the terminal
 
 ```bash
-serket --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json
+serket --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS
 ```
 
-### Open a specific JSON in the Workbench
+### Open a specific collection bundle in the Workbench
 
 ```bash
 serket \
-  --serve ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json \
+  --serve ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS \
   --port 8080
 ```
 
 ## Using the Workbench
 
-1. **Overview** shows domain, graph and collection metrics plus the highest-priority calculated paths.
+1. **Overview** shows domain, graph and collection metrics, separate workstation/server/DC counts, data quality and the highest-priority calculated paths.
 2. **Search** accepts a partial name, SID, UPN, distinguished name, DNS name or `sAMAccountName`.
 3. **Paths** lets you select a source identity and a destination or all Tier 0 targets, filter the relationship type and constrain hop count.
 4. **Focused graph** displays the selected route as an interactive directed subgraph. Drag the diamond nodes to rearrange it; curves, arrows and labels follow automatically.
@@ -266,6 +290,8 @@ The Workbench uses a small read-only API that can also support local integration
 | `GET` | `/api/search?q=aria` | Universal node search |
 | `GET` | `/api/nodes/{node_id}` | Node details and relationship directions |
 | `GET` | `/api/graph` | Normalized saved graph |
+| `GET` | `/api/stats` | Graph, system-role and data-quality metrics |
+| `GET` | `/api/coverage` | Collected directory scope and explicitly missing host scope |
 | `GET` | `/api/paths` | Precomputed global paths |
 | `POST` | `/api/query-paths` | On-demand path calculation over the loaded graph |
 | `GET` | `/api/surface` | Derived exposure summary |
@@ -290,9 +316,11 @@ The response explicitly reports `"queried_directory": false` because the calcula
 Current graph construction includes, where supported by collected evidence:
 
 - Direct and transitive `MemberOf` relationships
+- `Contains`, `GPLink` and derived administrative control of domain controllers
 - `GenericAll`, `GenericWrite`, `WriteDACL`, `WriteOwner` and `AllExtendedRights`
-- `ForceChangePassword`, `AddMember`, `AddSelf` and `ShadowCredentials`
-- `DCSync`
+- `Owns`, `ForceChangePassword`, `AddMember` and `AddSelf`
+- `AddKeyCredentialLink`, `AddAllowedToAct`, `WriteSPN` and `WriteAccountRestrictions`
+- `GetChanges`, `GetChangesAll`, `GetChangesInFilteredSet` and derived `DCSync` when the required pair is present
 - Unconstrained delegation, constrained delegation and RBCD
 - Kerberoastable and AS-REP roastable identities
 - AD CS ESC1 enrollment paths
@@ -300,6 +328,8 @@ Current graph construction includes, where supported by collected evidence:
 - Legacy Microsoft LAPS and modern Windows LAPS visibility indicators
 - gMSA readability indicators without persisting the managed-password blob
 - Domain trusts and selected GPO metadata
+
+Serket preserves multiple permissions between the same source and target. Non-traversable evidence such as an isolated replication right or ordinary certificate enrollment remains visible in the permission inventory but is excluded from pathfinding until the conditions for a traversable relationship are met.
 
 These are relationship and exposure observations, not proof that an exploitation action occurred or will succeed. Validate every path in the target environment and within the agreed rules of engagement.
 
@@ -349,6 +379,7 @@ Serket does not replace authorization, a collection plan or change control. Stor
 
 The following items are not complete in this release:
 
+- Host-derived session and local-right collection (`HasSession`, local `AdminTo`, RDP, DCOM, PSRemote and SQL admin); the current collector intentionally remains LDAP/DC-only
 - ESC2–ESC8 automated AD CS analysis
 - Advanced trust conclusions such as SID-filtering and quarantine abuse analysis
 - Live SIEM/EDR evidence import and verified detection status
@@ -365,10 +396,11 @@ Roadmap items are not security claims. Track implementation and tests in reposit
 python -B -m unittest discover -s tests -v
 python -m py_compile serket.py serket/cli.py serket/server/api.py
 node --check serket/ui/workbench.js
+node --check serket/ui/path-graph-interactions.js
 docker build --tag serket:dev .
 ```
 
-The current automated suite covers API security headers, graph normalization, collection invariants, internationalization, universal search, node relationship directions and arbitrary-source path queries. A successful unit test run does not replace validation against an authorized lab domain.
+The automated suite covers API security headers, graph normalization, raw binary SID and security-descriptor handling, DCSync post-processing, parallel permissions, system classification, paths to domain controllers, legacy-result recovery, internationalization, universal search, node relationship directions and arbitrary-source path queries. A successful unit test run does not replace validation against an authorized lab domain.
 
 ## Project layout
 

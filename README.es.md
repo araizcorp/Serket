@@ -27,9 +27,10 @@ Serket no se presenta como “indetectable”. Su perfil de colección controlad
 
 | Función | Estado | Alcance actual |
 |---|---:|---|
-| Colección LDAP | Disponible | Usuarios, grupos, equipos, dominio, GPO, trusts, ACL seleccionadas y AD CS |
+| Colección LDAP/DC-only | Disponible | Usuarios, grupos, sistemas, dominio, jerarquía OU/contenedores, GPO, trusts, permisos de propietario+DACL y AD CS |
+| Clasificación de sistemas | Disponible | Estaciones, servidores miembro y controladores de dominio se modelan y cuentan por separado |
 | Autenticación | Disponible | Contraseña, hash NTLM, caché Kerberos y LDAPS opcional |
-| Grafo de relaciones | Disponible | Grafo dirigido, grupos transitivos, permisos y delegación |
+| Grafo de relaciones | Disponible | Multigrafo dirigido; conserva permisos paralelos sin que uno sobrescriba a otro |
 | Rutas globales | Disponible | Dijkstra ponderado hacia objetos de alto valor |
 | Consulta interactiva | Disponible | Origen concreto hacia un destino o Tier 0 usando el grafo cargado |
 | Buscador universal | Disponible | Nombre, SID, UPN, DN, DNS y `sAMAccountName` |
@@ -39,7 +40,7 @@ Serket no se presenta como “indetectable”. Su perfil de colección controlad
 | AD CS | Parcial | Clasificación automática de ESC1 |
 | Trusts | Parcial | Enumeración sin inferencias avanzadas de abuso |
 | Detección | Parcial | Guía y telemetría esperada; todavía sin importación de evidencia SIEM/EDR |
-| Paquete `.serket` | Previsto | Actualmente se genera JSON y un informe de texto |
+| Paquete de colección | Disponible | Manifiesto y JSON separados para identidades, sistemas, permisos, estructura, AD CS, grafo y análisis |
 
 ## Prueba rápida con datos sintéticos
 
@@ -156,28 +157,51 @@ serket \
 | `-dc HOST` | Anula el descubrimiento DNS automático y usa un controlador concreto |
 | `--rate-limit SEC` | Espera entre páginas LDAP; por defecto `0.08` segundos |
 | `--max-paths N` | Máximo de rutas globales guardadas |
-| `--no-acls` | Omite la recopilación de DACL; es más rápido pero elimina relaciones importantes |
+| `--no-acls` | Omite propietario y DACL; es más rápido pero elimina relaciones importantes |
 | `--no-adcs` | Omite la enumeración de plantillas de certificado |
 | `--ldaps` | Usa LDAP sobre TLS en el puerto 636 |
 | `-o DIR` | Selecciona el directorio de salida |
 | `--quiet` | Suprime el progreso para ejecuciones automatizadas |
 
-Las consultas de descriptores de ACL y ADCS solicitan automáticamente solo la DACL mediante el control LDAP de descriptores de seguridad de Microsoft. No requieren ninguna opción ni dependencia adicional.
+Las consultas de descriptores de ACL y ADCS solicitan automáticamente propietario y DACL mediante el control LDAP de descriptores de seguridad de Microsoft. No requieren ninguna opción ni dependencia adicional. `--no-acls` y `--no-adcs` se aplican realmente a la recopilación; no son simples filtros de visualización.
+
+### Cobertura: LDAP/DC-only frente a datos de hosts
+
+La ejecución estándar de Serket es una recopilación LDAP/DC-only. Cubre la parte de estructura del directorio esperable en un colector estilo BloodHound: propiedades de objetos, membresías de grupos de seguridad, trusts, jerarquía de OU/contenedores, enlaces GPO, permisos relevantes de propietario/DACL sobre usuarios, grupos, sistemas, GPO, OU, contenedores y dominio, además de los objetos AD CS actualmente soportados.
+
+No contacta todos los equipos unidos al dominio. Por tanto, una ejecución estándar no afirma relaciones obtenidas desde hosts como `HasSession`, `AdminTo` local, `CanRDP`, `ExecuteDCOM`, `CanPSRemote` o `SQLAdmin`. Esas relaciones requieren SMB/RPC, registro o telemetría del host y otro perfil de autorización/ruido. Cada resultado registra esta diferencia en `coverage` para que la ausencia de una relación no se presente como prueba de que no existe. Es la distinción entre recopilación de directorio/DC-only y de equipos documentada en los [métodos de colección de SharpHound](https://bloodhound.specterops.io/collect-data/ce-collection/sharphound-flags).
 
 Consulta todas las opciones con `serket --help`. El acceso heredado mediante `python serket.py` sigue disponible desde una copia del código fuente.
 
 ## Resultados y análisis
 
-La ubicación predeterminada es `~/.serket/results/`:
+La ubicación predeterminada es `~/.serket/results/`. Cada ejecución crea un directorio:
 
 ```text
-serket_corp_local_YYYYMMDD_HHMMSS.json
-serket_corp_local_YYYYMMDD_HHMMSS_report.txt
+serket_corp_local_YYYYMMDD_HHMMSS/
+├── manifest.json
+├── domain.json
+├── users.json
+├── groups.json
+├── computers.json
+├── directory_objects.json
+├── gpos.json
+├── trusts.json
+├── permissions.json
+├── adcs.json
+├── summary.json
+├── graph.json
+├── analysis.json
+└── report.txt
 ```
+
+`manifest.json` declara el esquema y los componentes. La separación permite detectar una fase incompleta o anormalmente vacía y validar el paquete antes de unirlo en memoria. El grafo y las rutas siguen analizándose como un único conjunto lógico. Todo el directorio es evidencia sensible y debe conservarse unido.
+
+`serket server`, `--load` y `--serve` aceptan el directorio o su `manifest.json`. Los JSON únicos de versiones anteriores siguen siendo compatibles.
 
 ### Abrir el resultado más reciente en el Workbench
 
-Cuando termine la recopilación, inicia la interfaz web sin tener que localizar el JSON manualmente:
+Cuando termine la recopilación, inicia la interfaz web sin tener que localizar el paquete manualmente:
 
 ```bash
 serket server
@@ -194,20 +218,22 @@ Utiliza `--port 9090` para elegir otro puerto local o `--output DIR` si guardast
 ### Ver un resultado en terminal
 
 ```bash
-serket --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json
+serket --load ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS
 ```
 
-### Abrir un JSON concreto en el Workbench
+### Abrir un paquete concreto en el Workbench
 
 ```bash
-serket --serve ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS.json --port 8080
+serket --serve ~/.serket/results/serket_corp_local_YYYYMMDD_HHMMSS --port 8080
 ```
 
-El JSON contiene metadatos del dominio, telemetría de colección, grafo, superficie derivada y rutas calculadas. Debe tratarse como evidencia sensible del cliente.
+Los componentes contienen metadatos, telemetría, estado de calidad y cobertura, objetos, permisos, grafo, superficie derivada y rutas calculadas. Deben tratarse como evidencia sensible del cliente.
+
+Los resultados creados por la versión v2.0 inicial afectada, donde los SID binarios se guardaban como texto ilegible, se reparan en memoria al cargarlos. Esto restaura identificadores canónicos, clasificación estación/servidor/DC, marcado Tier 0 y rutas derivadas de membresías. No puede recuperar ACL que nunca fueron escritas en el archivo antiguo; ejecuta una recopilación nueva para disponer de todos los permisos de propietario/DACL.
 
 ## Uso del Workbench
 
-1. **Resumen** muestra métricas del dominio, grafo, colección y rutas prioritarias.
+1. **Resumen** muestra métricas del dominio, grafo y colección, recuentos separados de estaciones/servidores/DC, calidad de datos y rutas prioritarias.
 2. **Buscar** localiza objetos por nombre parcial, SID, UPN, DN, DNS o `sAMAccountName`.
 3. **Rutas** permite seleccionar un origen y un destino o todos los objetos Tier 0, filtrar relaciones y limitar saltos.
 4. **Grafo enfocado** muestra únicamente la ruta seleccionada. Los rombos se pueden mover libremente y las conexiones se recolocan en tiempo real.
@@ -223,9 +249,11 @@ El selector `EN / ES` cambia el idioma y solo guarda esa preferencia en el naveg
 Cuando existe evidencia suficiente, Serket modela:
 
 - Membresía directa y transitiva de grupos
+- `Contains`, `GPLink` y control administrativo derivado sobre controladores de dominio
 - `GenericAll`, `GenericWrite`, `WriteDACL`, `WriteOwner` y `AllExtendedRights`
-- `ForceChangePassword`, `AddMember`, `AddSelf` y `ShadowCredentials`
-- `DCSync`
+- `Owns`, `ForceChangePassword`, `AddMember` y `AddSelf`
+- `AddKeyCredentialLink`, `AddAllowedToAct`, `WriteSPN` y `WriteAccountRestrictions`
+- `GetChanges`, `GetChangesAll`, `GetChangesInFilteredSet` y `DCSync` derivado cuando existe la pareja necesaria
 - Delegación no restringida, restringida y RBCD
 - Identidades Kerberoastable y AS-REP roastable
 - Rutas AD CS ESC1
@@ -233,6 +261,8 @@ Cuando existe evidencia suficiente, Serket modela:
 - Indicadores de visibilidad de LAPS clásico y Windows LAPS
 - Indicadores gMSA sin guardar el blob de contraseña administrada
 - Trusts de dominio y determinados metadatos de GPO
+
+Serket conserva varios permisos entre el mismo origen y destino. La evidencia no transitable, como un derecho de replicación aislado o una inscripción de certificado ordinaria, sigue visible en el inventario de permisos pero queda fuera del cálculo de rutas hasta que existan las condiciones de una relación transitable.
 
 Estas relaciones no prueban que una acción se haya ejecutado o que vaya a funcionar. Cada ruta debe validarse dentro del alcance autorizado.
 
@@ -269,6 +299,7 @@ Serket no sustituye la autorización, el plan de colección ni el control de cam
 
 Todavía no están completos:
 
+- Recopilación desde hosts de sesiones y derechos locales (`HasSession`, `AdminTo` local, RDP, DCOM, PSRemote y administración SQL); el colector actual permanece intencionadamente en modo LDAP/DC-only
 - Análisis automático AD CS ESC2–ESC8
 - Conclusiones avanzadas de trusts, filtrado SID y quarantine
 - Importación de evidencia SIEM/EDR y estado de detección verificado
@@ -283,8 +314,11 @@ Todavía no están completos:
 python -B -m unittest discover -s tests -v
 python -m py_compile serket.py serket/cli.py serket/server/api.py
 node --check serket/ui/workbench.js
+node --check serket/ui/path-graph-interactions.js
 docker build --tag serket:dev .
 ```
+
+La suite cubre SID y descriptores binarios, composición DCSync, permisos paralelos, clasificación de sistemas, rutas a controladores de dominio, recuperación de resultados antiguos, API, búsqueda e interfaz. Las pruebas unitarias no sustituyen la validación en un dominio de laboratorio autorizado.
 
 ## Uso responsable, licencia y propiedad
 
