@@ -156,11 +156,13 @@ serket \
 | `-dc HOST` | Anula el descubrimiento DNS automático y usa un controlador concreto |
 | `--rate-limit SEC` | Espera entre páginas LDAP; por defecto `0.08` segundos |
 | `--max-paths N` | Máximo de rutas globales guardadas |
-| `--no-acls` | Omite ACL; es más rápido pero elimina relaciones importantes |
+| `--no-acls` | Omite la recopilación de DACL; es más rápido pero elimina relaciones importantes |
 | `--no-adcs` | Omite la enumeración de plantillas de certificado |
 | `--ldaps` | Usa LDAP sobre TLS en el puerto 636 |
 | `-o DIR` | Selecciona el directorio de salida |
 | `--quiet` | Suprime el progreso para ejecuciones automatizadas |
+
+Las consultas de descriptores de ACL y ADCS solicitan automáticamente solo la DACL mediante el control LDAP de descriptores de seguridad de Microsoft. No requieren ninguna opción ni dependencia adicional.
 
 Consulta todas las opciones con `serket --help`. El acceso heredado mediante `python serket.py` sigue disponible desde una copia del código fuente.
 

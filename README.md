@@ -193,11 +193,13 @@ serket \
 | `-dc HOST` | Override automatic AD DNS discovery and use a specific controller |
 | `--rate-limit SEC` | Delay between LDAP result pages; default `0.08` seconds |
 | `--max-paths N` | Maximum global paths saved; default `20` |
-| `--no-acls` | Skip ACL collection; faster but removes important permission edges |
+| `--no-acls` | Skip DACL-only ACL collection; faster but removes important permission edges |
 | `--no-adcs` | Skip certificate-template enumeration |
 | `--ldaps` | Use LDAP over TLS on port 636 |
 | `-o DIR` | Select the output directory |
 | `--quiet` | Suppress progress output for machine-oriented execution |
+
+ACL and ADCS descriptor queries automatically request only the DACL through the Microsoft LDAP security-descriptor control. No additional flag or dependency is required.
 
 Run `serket --help` for the complete CLI reference. The legacy `python serket.py` entry point remains available from a source checkout.
 
