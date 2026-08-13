@@ -1,4 +1,12 @@
 .inspector-tabs button { min-width: 0; padding-inline: 6px; }
+.credential-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.credential-badge { padding: 3px 6px; border: 1px solid currentColor; border-radius: 999px; font: 700 8px var(--mono); letter-spacing: .04em; }
+.credential-badge.reuse { color: var(--red-soft); background: rgba(224, 68, 78, .1); }
+.credential-badge.cloud { color: var(--blue); background: rgba(101, 169, 232, .1); }
+.credential-badge.laps { color: var(--green); background: rgba(98, 199, 138, .1); }
+.credential-badge.shadow { color: var(--violet); background: rgba(166, 138, 246, .1); }
+.credential-badge.drift { color: var(--orange, #e4a64e); background: rgba(228, 166, 78, .1); }
+.credential-badge.policy { color: var(--red-soft); background: rgba(224, 68, 78, .1); }
 .node-relation-list { display: grid; gap: 7px; }
 .node-relation-row,
 .node-path-row {

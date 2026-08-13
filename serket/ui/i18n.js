@@ -356,7 +356,14 @@
     ["laps_readable", "LAPS readability", "Computers marked as readable"],
     ["gmsa_accounts", "gMSA accounts", "Managed service accounts"],
     ["sid_history", "SID History", "Identities with historical SIDs"],
-    ["password_in_desc", "Sensitive text", "Heuristic matches in descriptions"]
+    ["password_in_desc", "Sensitive text", "Heuristic matches in descriptions"],
+    ["shadow_credentials", "Shadow Credentials", "Accounts with populated KeyCredentialLink"],
+    ["adminsdholder_drift", "AdminSDHolder drift", "Protected DACL differs from template"],
+    ["protected_users_gaps", "Admins outside Protected Users", "Hardening gap for sensitive accounts"],
+    ["rodc_exposure", "RODC credentials", "Secrets observed on read-only domain controllers"],
+    ["special_group_exposure", "Exposed special groups", "Broad or inherited memberships"],
+    ["uac_risks", "UAC risks", "Weak or legacy account flags"],
+    ["trust_risks", "Trusts to review", "Relaxed SID filtering or TGT delegation"]
   ];
 
   function translateValue(value) {

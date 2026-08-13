@@ -342,12 +342,16 @@ kbd { min-width: 23px; padding: 2px 5px; border: 1px solid var(--line-strong); b
 .priority-meta { display: flex; gap: 5px; }
 .small-chip { padding: 4px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font: 8px var(--mono); }
 .small-chip.red { border-color: rgba(224, 68, 78, .32); color: var(--red-soft); }
-.surface-summary, .collection-summary { padding: 7px 14px 14px; }
+.surface-summary, .collection-summary, .domain-policy-summary { padding: 7px 14px 14px; }
 .summary-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .summary-row:last-child { border-bottom: 0; }
 .summary-row span { color: var(--text-soft); font-size: 10px; }
 .summary-row strong { color: var(--gold-soft); font: 700 11px var(--mono); }
 .summary-row small { display: block; margin-top: 2px; color: var(--muted); font-size: 8px; }
+.policy-alert { margin: 12px 14px 4px; padding: 10px; border: 1px solid rgba(224, 68, 78, .48); border-radius: 7px; background: rgba(224, 68, 78, .1); color: var(--red-soft); font: 700 9px var(--mono); letter-spacing: .04em; }
+.policy-alert.maq { width: calc(100% - 28px); border-color: rgba(228, 166, 78, .48); background: rgba(228, 166, 78, .1); color: #e4a64e; text-align: left; cursor: pointer; }
+.summary-row.critical strong { color: var(--red-soft); }
+.node-flag.critical { background: rgba(224, 68, 78, .14); color: var(--red-soft); }
 
 /* Paths */
 .path-heading { align-items: center; }

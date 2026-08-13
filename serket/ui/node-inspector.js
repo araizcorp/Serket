@@ -36,6 +36,17 @@
     }).join("") + '</div>';
   }
 
+  function credentialBadges(node) {
+    const badges = [];
+    if (node.credential_reuse) badges.push('<span class="credential-badge reuse">REUSE (' + Number(node.reuse_count || 0) + ')</span>');
+    if (node.cloud_linked) badges.push('<span class="credential-badge cloud">CLOUD</span>');
+    if (node.laps_reuse) badges.push('<span class="credential-badge laps">LAPS REUSE</span>');
+    if (node.has_key_credential_link) badges.push('<span class="credential-badge shadow">SHADOW</span>');
+    if (node.adminsdholder_drift) badges.push('<span class="credential-badge drift">SD-DRIFT</span>');
+    if (node.matches_domain_policy === false) badges.push('<span class="credential-badge policy">POLICY FAIL</span>');
+    return badges.length ? '<div class="credential-badges">' + badges.join("") + '</div>' : '';
+  }
+
   const originalInspectNode = inspectNode;
   const originalInspectEdge = inspectEdge;
 
@@ -61,7 +72,7 @@
 
     document.getElementById("inspector-title").textContent = node.name || node.id || "Object";
     document.getElementById("inspector-code").textContent = node.type || "NODE";
-    const header = '<section class="inspector-section"><h3>' + (s ? "Objeto seleccionado" : "Selected object") + '</h3><div class="inspector-object"><span class="inspector-object-icon" style="color:' + typeColor(node.type, high) + '">' + typeIcon(node.type) + '</span><div><h2>' + esc(node.name || node.id || "Object") + '</h2><p>' + esc(node.type || "Unknown") + '</p></div></div></section>';
+    const header = '<section class="inspector-section"><h3>' + (s ? "Objeto seleccionado" : "Selected object") + '</h3><div class="inspector-object"><span class="inspector-object-icon" style="color:' + typeColor(node.type, high) + '">' + typeIcon(node.type) + '</span><div><h2>' + esc(node.name || node.id || "Object") + '</h2><p>' + esc(node.type || "Unknown") + '</p>' + credentialBadges(node) + '</div></div></section>';
     let html = header;
 
     if (state.inspectorTab === "evidence") {

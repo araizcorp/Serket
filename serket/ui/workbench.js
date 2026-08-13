@@ -34,7 +34,7 @@ const state = {
   lastCommand: ""
 };
 
-const EDGE_CATALOG = {
+let EDGE_CATALOG = {
   MemberOf: {
     impact: "La identidad hereda las capacidades concedidas al grupo. La relevancia depende de los permisos que el grupo tenga después en la ruta.",
     telemetry: "Cambios de membresía pueden producir eventos de administración de grupos; el uso posterior de los privilegios genera señales diferentes.",
@@ -157,7 +157,14 @@ const SURFACE_DEFINITIONS = [
   ["laps_readable", "Lectura LAPS", "Equipos marcados como legibles"],
   ["gmsa_accounts", "Cuentas gMSA", "Cuentas de servicio administradas"],
   ["sid_history", "SID History", "Identidades con SID histórico"],
-  ["password_in_desc", "Texto sensible", "Coincidencias heurísticas en descripciones"]
+  ["password_in_desc", "Texto sensible", "Coincidencias heurísticas en descripciones"],
+  ["shadow_credentials", "Shadow Credentials", "Cuentas con KeyCredentialLink poblado"],
+  ["adminsdholder_drift", "Drift de AdminSDHolder", "DACL protegida distinta de la plantilla"],
+  ["protected_users_gaps", "Admins sin Protected Users", "Gap de hardening en cuentas sensibles"],
+  ["rodc_exposure", "Credenciales en RODC", "Secretos observados en controladores de solo lectura"],
+  ["special_group_exposure", "Grupos especiales expuestos", "Membresías amplias o heredadas"],
+  ["uac_risks", "Riesgos UAC", "Flags de cuenta débiles o heredados"],
+  ["trust_risks", "Trusts a revisar", "Filtrado SID relajado o delegación TGT"]
 ];
 
 const $ = (selector, root) => (root || document).querySelector(selector);
@@ -258,7 +265,8 @@ async function init() {
     api("/api/graph", {nodes: [], edges: [], available: false}),
     api("/api/meta", {}),
     api("/api/adcs", {}),
-    api("/api/trusts", [])
+    api("/api/trusts", []),
+    api("/api/detection-catalog", {entries: {}})
   ]);
 
   state.domain = result[0] || {};
@@ -269,6 +277,17 @@ async function init() {
   state.meta = result[5] || {};
   state.adcs = result[6] || {};
   state.trusts = Array.isArray(result[7]) ? result[7] : [];
+  const detectionEntries = (result[8] && result[8].entries) || {};
+  Object.keys(detectionEntries).forEach(type => {
+    const item = detectionEntries[type] || {};
+    EDGE_CATALOG[type] = {
+      impact: (EDGE_CATALOG[type] || {}).impact || "Documented relationship with context-dependent impact.",
+      telemetry: item.source + (item.event_ids && item.event_ids.length ? " · Event IDs " + item.event_ids.join(", ") : ""),
+      prerequisites: item.prerequisites,
+      remediation: item.remediation,
+      event_ids: item.event_ids || []
+    };
+  });
 
   buildIndexes();
   bindStaticEvents();
@@ -367,6 +386,8 @@ function renderOverview() {
     '<div class="summary-row"><span>' + esc(labels[key]) + '</span><strong>' + fmt(arrayValue(state.surface[key]).length) + '</strong></div>'
   ).join("");
 
+  renderDomainPolicy();
+
   const collection = (state.meta && state.meta.collection) || {};
   const systems = state.stats.systems || {};
   const quality = state.stats.quality || {};
@@ -382,6 +403,49 @@ function renderOverview() {
     ["Duración", fmtDuration(collection.duration_ms)],
     ["Transporte", collection.transport || "No registrado"]
   ].map(item => '<div class="summary-row"><span>' + esc(item[0]) + '</span><strong>' + esc(item[1]) + '</strong></div>').join("");
+}
+
+function renderDomainPolicy() {
+  const password = state.domain.password_policy || {};
+  const lockout = state.domain.lockout_policy || {};
+  const hasPolicy = Object.keys(password).length || Object.keys(lockout).length || state.domain.maq != null || state.trusts.length;
+  const target = $("#domain-policy-summary");
+  if (!hasPolicy) {
+    target.innerHTML = '<div class="list-empty">Esta colección no incluye la política de contraseñas.</div>';
+    return;
+  }
+  const rows = [
+    ["Longitud mínima", fmt(password.min_length), Number(password.min_length) < 12],
+    ["Edad mínima", fmt(password.min_age_days) + " días", false],
+    ["Edad máxima", Number(password.max_age_days) ? fmt(password.max_age_days) + " días" : "Sin caducidad", !Number(password.max_age_days)],
+    ["Historial", fmt(password.history_length), false],
+    ["Complejidad", password.complexity_required ? "Activada" : "Desactivada", !password.complexity_required],
+    ["Bloqueo", Number(lockout.threshold) ? fmt(lockout.threshold) + " intentos" : "Desactivado", !Number(lockout.threshold)],
+    ["Duración de bloqueo", fmt(lockout.duration_minutes) + " min", false],
+    ["Ventana de observación", fmt(lockout.observation_window_minutes) + " min", false],
+    ["MachineAccountQuota", fmt(state.domain.maq || 0), Number(state.domain.maq || 0) > 0],
+    ["RODC", fmt(state.domain.rodc_count || 0), Number(state.domain.rodc_tier0_exposure_count || 0) > 0],
+    ["Drift de AdminSDHolder", fmt(state.domain.adminsdholder_drift_count || 0), Number(state.domain.adminsdholder_drift_count || 0) > 0],
+    ["Trusts", fmt(state.trusts.length), state.trusts.some(trust => trust.sid_filtering_risk)],
+    ["Sistemas operativos", fmt(Object.keys(state.domain.operating_system_inventory || {}).length), false]
+  ];
+  const alerts = [];
+  if (password.store_cleartext) alerts.push("REVERSIBLE ENCRYPTION ACTIVADO");
+  if (state.trusts.some(trust => trust.sid_filtering_risk)) alerts.push("FOREST TRUST CON FILTRADO SID RELAJADO");
+  if (Number(state.domain.rodc_tier0_exposure_count || 0) > 0) alerts.push("RODC CON CREDENCIALES TIER 0 REPLICADAS");
+  if (state.domain.prewin2000_exposure) alerts.push("PRE-WINDOWS 2000 ACCESS EXPUESTO");
+  const unconstrainedNonDc = state.searchNodes.filter(node => node.unconstrained && !node.is_dc).length;
+  if (unconstrainedNonDc) alerts.push(unconstrainedNonDc + " EQUIPOS/CUENTAS NO-DC CON DELEGACIÓN NO RESTRINGIDA");
+  const alert = alerts.map(message => '<div class="policy-alert">' + esc(message) + '</div>').join("");
+  const maq = Number(state.domain.maq || 0);
+  const maqAlert = maq > 0
+    ? '<button class="policy-alert maq" id="maq-alert" type="button">MAQ: ' + fmt(maq) + ' - RIESGO DE ALTA DE EQUIPOS</button>'
+    : '';
+  target.innerHTML = alert + maqAlert + rows.map(item =>
+    '<div class="summary-row' + (item[2] ? ' critical' : '') + '"><span>' + esc(item[0]) + '</span><strong>' + esc(item[1]) + '</strong></div>'
+  ).join("");
+  const maqButton = $("#maq-alert");
+  if (maqButton) maqButton.addEventListener("click", () => showToast("MachineAccountQuota permite a identidades autenticadas crear cuentas de equipo. Valida necesidad, delegaciones y RBCD."));
 }
 
 function renderContext() {
@@ -582,7 +646,7 @@ function renderPath(path) {
       '<span class="node-icon">' + typeIcon(full.type) + '</span>' +
       '<span class="node-kind">' + esc(full.type || "Objeto") + '</span>' +
       '<span class="node-label">' + esc(full.name || full.id || "Objeto") + '</span>' +
-      '<span class="node-flags">' + nodeFlags(full).map(flag => '<span class="node-flag">' + esc(flag) + '</span>').join("") + '</span>' +
+      '<span class="node-flags">' + nodeFlags(full).map(flag => '<span class="node-flag' + (/^(OLD|NO-PWD|STALE|REV|SHADOW|SD-DRIFT|NO-PROTECTED|DES|LOCKED|RODC-T0|PREWIN-OPEN|POLICY FAIL)/.test(flag) ? ' critical' : '') + '">' + esc(flag) + '</span>').join("") + '</span>' +
     '</button>';
     if (index < steps.length) {
       const step = steps[index];
@@ -615,6 +679,34 @@ function nodeFlags(node) {
   if (node.laps_encrypted) flags.push("LAPS ENC");
   if (node.is_gmsa) flags.push("gMSA");
   if (node.gmsa_password_readable) flags.push("LECTURA gMSA");
+  if (Number(node.pwd_age_days) > 730) flags.push("OLD " + node.pwd_age_days + "d");
+  if (node.pwd_never_expires) flags.push("NO-EXP");
+  if (node.pwd_not_required) flags.push("NO-PWD");
+  if (node.stale) flags.push("STALE");
+  if (node.store_cleartext) flags.push("REV");
+  if (node.reversible_encryption) flags.push("REV-USER");
+  if (node.has_key_credential_link) flags.push("SHADOW");
+  if (node.adminsdholder_drift) flags.push("SD-DRIFT");
+  if (node.missing_protected_users) flags.push("NO-PROTECTED");
+  if (node.credential_reuse) flags.push("REUSE (" + Number(node.reuse_count || 0) + ")");
+  if (node.cloud_linked) flags.push("CLOUD");
+  if (node.laps_reuse) flags.push("LAPS REUSE");
+  if (node.matches_domain_policy === false) flags.push("POLICY FAIL");
+  if (node.unconstrained) flags.push("UD");
+  if ((node.delegation_targets || []).length) flags.push("CD");
+  if ((node.rbcd_trustees || []).length) flags.push("RBCD");
+  if (node.smartcard_required) flags.push("SMARTCARD");
+  if (node.not_delegated) flags.push("NO-DELEG");
+  if (node.use_des_key_only) flags.push("DES");
+  if (node.locked_out) flags.push("LOCKED");
+  if (node.logon_hours_restricted || (node.user_workstations || []).length) flags.push("LOGON-RESTRICT");
+  if (node.authn_policy_assigned) flags.push("AUTH-POLICY");
+  if (node.is_rodc) flags.push("RODC");
+  if (node.rodc_tier0_exposure) flags.push("RODC-T0");
+  if (node.is_dns_admins) flags.push("DNS-ADM");
+  if (node.is_exchange_privileged) flags.push("EXCHANGE");
+  if (node.is_key_admin) flags.push("KEY-ADMIN");
+  if (node.prewin2000_exposure) flags.push("PREWIN-OPEN");
   return flags;
 }
 
@@ -916,12 +1008,12 @@ function arrayValue(value) {
 function surfaceItemName(entry) {
   if (entry == null) return "Elemento";
   if (typeof entry !== "object") return String(entry);
-  return entry.name || entry.account || entry.target_name || entry.target || entry.enroller || entry.template || entry.dns || entry.sid || "Elemento";
+  return entry.name || entry.account || entry.partner || entry.target_name || entry.target || entry.enroller || entry.template || entry.dns || entry.sid || "Elemento";
 }
 
 function surfaceItemMeta(entry) {
   if (!entry || typeof entry !== "object") return "OBSERVADO";
-  return entry.edge || entry.type || (entry.password_readable ? "LECTURA" : "OBSERVADO");
+  return entry.edge || entry.finding || entry.type || (entry.risks || []).join(", ") || (entry.password_readable ? "LECTURA" : "OBSERVADO");
 }
 
 function renderDetection() {
@@ -1056,9 +1148,24 @@ function renderNodeInspector() {
 function nodePropertyDetails(node) {
   const properties = [
     ["DNS", node.dns], ["UPN", node.upn], ["sAMAccountName", node.sam_account_name || node.sam],
-    ["Rol", node.computer_role], ["Sistema operativo", node.os],
+    ["Rol", node.computer_role], ["Sistema operativo", node.os_display || node.os],
+    ["Versión de SO", node.os_version], ["Service Pack", node.os_service_pack],
     ["AdminCount", node.admin_count], ["LAPS", node.laps_readable ? "Lectura marcada" : "—"],
-    ["gMSA", node.is_gmsa ? "Sí" : "—"]
+    ["gMSA", node.is_gmsa ? "Sí" : "—"],
+    ["Último cambio de contraseña", node.pwd_last_set],
+    ["Edad de contraseña", node.pwd_age_days != null ? node.pwd_age_days + " días" : null],
+    ["Último inicio de sesión", node.last_logon_timestamp || node.last_logon],
+    ["Inactividad", node.last_logon_age_days != null ? node.last_logon_age_days + " días" : null],
+    ["La contraseña no caduca", node.pwd_never_expires ? "Sí" : null],
+    ["Contraseña no requerida", node.pwd_not_required ? "Sí" : null],
+    ["Cifrado reversible", (node.store_cleartext || node.reversible_encryption) ? "ACTIVADO" : null],
+    ["Delegación restringida", (node.delegation_targets || []).join(", ")],
+    ["Principales RBCD", (node.rbcd_trustees || []).join(", ")],
+    ["Política de autenticación", node.assigned_authn_policy],
+    ["Estaciones permitidas", (node.user_workstations || []).join(", ")],
+    ["Cuenta bloqueada", node.locked_out ? "Sí" : null],
+    ["RODC secretos replicados", node.is_rodc ? (node.rodc_revealed_users || []).length : null],
+    ["RODC secretos Tier 0", node.is_rodc ? (node.rodc_tier0_revealed_users || []).length : null]
   ].filter(item => item[1] != null && item[1] !== "");
   if (!properties.length) return "";
   return '<section class="inspector-section"><h3>Atributos relevantes</h3><div class="detail-grid">' + properties.map(item => detailCell(item[0], item[1])).join("") + '</div></section>';

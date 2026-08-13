@@ -116,6 +116,14 @@ def show_collection_summary(ad_data: dict, graph_stats: dict) -> None:
         obj_tbl.add_row(label, str(count), str(in_graph))
 
     console.print(obj_tbl)
+    os_inventory = domain.get("operating_system_inventory", {})
+    if os_inventory:
+        os_tbl = Table(title="Operating System Inventory", box=box.SIMPLE_HEAD)
+        os_tbl.add_column("Operating system", style="white")
+        os_tbl.add_column("Machines", style="cyan", justify="right")
+        for os_name, count in sorted(os_inventory.items(), key=lambda item: (-item[1], item[0])):
+            os_tbl.add_row(os_name, str(count))
+        console.print(os_tbl)
     console.print(
         f"  [dim white]Graph:[/] [bold white]{graph_stats['nodes']}[/] nodes  "
         f"[bold white]{graph_stats['edges']}[/] edges  "
@@ -159,6 +167,13 @@ def show_attack_surface(surface: dict) -> None:
     if unc:
         names = ", ".join(f"{u['name']} [{u['type']}]" for u in unc)
         console.print(f"  [bold red]⚡ Unconstrained Delegation ({len(unc)}) — non-DC:[/] {names}\n")
+
+    constrained = surface.get("constrained", [])
+    if constrained:
+        console.print(f"  [bold yellow]CD · Constrained Delegation ({len(constrained)}):[/]")
+        for item in constrained[:8]:
+            targets = ", ".join(item.get("targets", [])[:3]) or "target recorded on edge"
+            console.print(f"    [dim]·[/] [white]{item['name']}[/] → [yellow]{targets}[/]")
 
     # ── DCSync rights ─────────────────────────────────────────────────────────
     dcsync = surface.get("dcsync", [])
@@ -211,9 +226,22 @@ def show_attack_surface(surface: dict) -> None:
         for t in trusts:
             console.print(
                 f"    [dim]·[/] [white]{t['partner']}[/] "
-                f"[dim]({t['direction']})[/]"
+                f"[dim]({t['direction']} · {t.get('trust_type', 'Unknown')} · "
+                f"SID filtering: {t.get('sid_filtering_status', 'unknown')})[/]"
             )
         console.print()
+
+    posture = [
+        ("Shadow Credentials", surface.get("shadow_credentials", []), "magenta"),
+        ("AdminSDHolder drift", surface.get("adminsdholder_drift", []), "yellow"),
+        ("Admins outside Protected Users", surface.get("protected_users_gaps", []), "red"),
+        ("RODC credential exposure", surface.get("rodc_exposure", []), "red"),
+        ("UAC risks", surface.get("uac_risks", []), "yellow"),
+        ("Trust risks", surface.get("trust_risks", []), "red"),
+    ]
+    for label, entries, color in posture:
+        if entries:
+            console.print(f"  [bold {color}]⚡ {label}: {len(entries)}[/]")
 
 
 def show_paths(result: dict, max_display: int = 10) -> None:
