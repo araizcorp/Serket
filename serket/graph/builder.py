@@ -27,7 +27,19 @@ EDGE_OPSEC: dict[str, tuple[int, str]] = {
     "DCSync":                   (3,  "low"),
     "Enroll":                   (2,  "low"),
     "ADCS_ESC1":                (2,  "low"),
+    "ADCS_ESC2":                (2,  "low"),
+    "ADCS_ESC3":                (2,  "low"),
+    "ADCS_ESC4":                (4,  "medium"),
+    "ADCS_ESC5":                (4,  "medium"),
     "GPOLink":                  (2,  "low"),
+    "MAQAbuse":                 (2,  "low"),
+    "DNSAdmin":                 (2,  "low"),
+    "ExchangePermissions":      (2,  "low"),
+    "RODCCachedCredential":     (2,  "low"),
+    "PreWindows2000Access":     (1,  "low"),
+    "Trust":                    (1,  "low"),
+    "ForestTrust":              (1,  "low"),
+    "NonTransitiveTrust":       (1,  "low"),
     "CanRDP":                   (2,  "low"),
     "CanPSRemote":              (2,  "low"),
     "HasPasswordInDescription": (2,  "low"),
@@ -62,6 +74,10 @@ MITRE_MAP = {
     "RBCD":                     {"id": "T1558",     "name": "Steal or Forge Kerberos Tickets"},
     "DCSync":                   {"id": "T1003.006", "name": "OS Credential Dumping: DCSync"},
     "ADCS_ESC1":                {"id": "T1649",     "name": "Steal or Forge Authentication Certificates"},
+    "ADCS_ESC2":                {"id": "T1649",     "name": "Steal or Forge Authentication Certificates"},
+    "ADCS_ESC3":                {"id": "T1649",     "name": "Steal or Forge Authentication Certificates"},
+    "ADCS_ESC4":                {"id": "T1649",     "name": "Steal or Forge Authentication Certificates"},
+    "ADCS_ESC5":                {"id": "T1649",     "name": "Steal or Forge Authentication Certificates"},
     "GenericAll":               {"id": "T1484.001", "name": "Domain Policy Modification"},
     "WriteDACL":                {"id": "T1222",     "name": "File & Directory Permissions Modification"},
     "WriteOwner":               {"id": "T1222",     "name": "File & Directory Permissions Modification"},
@@ -74,12 +90,17 @@ MITRE_MAP = {
     "WriteAccountRestrictions": {"id": "T1098",     "name": "Account Manipulation"},
     "HasSIDHistory":            {"id": "T1134.005", "name": "Access Token Manipulation: SID-History Injection"},
     "HasPasswordInDescription": {"id": "T1552.001", "name": "Unsecured Credentials: Credentials In Files"},
+    "MAQAbuse":                 {"id": "T1136.002", "name": "Create Account: Domain Account"},
+    "DNSAdmin":                 {"id": "T1574.002", "name": "Hijack Execution Flow: DLL Side-Loading"},
+    "ExchangePermissions":      {"id": "T1222.001", "name": "Windows File and Directory Permissions Modification"},
+    "RODCCachedCredential":     {"id": "T1003", "name": "OS Credential Dumping"},
+    "PreWindows2000Access":     {"id": "T1087.002", "name": "Account Discovery: Domain Account"},
     "Owns":                    {"id": "T1222.001", "name": "Windows File & Directory Permissions Modification"},
 }
 
 # Groups whose SID suffix indicates a high-value target
 _HIGH_VALUE_RIDS = {
-    "500", "502", "512", "516", "518", "519", "520", "521",
+    "500", "502", "512", "516", "518", "519", "520", "521", "525", "571", "572",
     "544", "548", "549", "550", "551",
 }
 
@@ -89,6 +110,10 @@ _HIGH_VALUE_NAMES = {
     "administrators", "account operators", "backup operators",
     "domain controllers", "read-only domain controllers",
     "print operators", "server operators", "group policy creator owners",
+    "protected users", "key admins", "enterprise key admins",
+    "dnsadmins", "dns admins", "exchange trusted subsystem",
+    "exchange windows permissions", "exchange organization administrators",
+    "exchange recipient administrators",
 }
 
 
@@ -125,6 +150,8 @@ class ADGraph:
         ag = cls()
         ag.sid_name = ad_data.get("sid_name", {})
         ag._add_nodes(ad_data)
+        ag._add_domain_policy_edges(ad_data)
+        ag._add_trust_edges(ad_data)
         ag._add_membership_edges(ad_data)
         ag._add_structure_edges(ad_data)
         ag._add_dc_control_edges(ad_data)
@@ -160,7 +187,18 @@ class ADGraph:
         domain = ad_data.get("domain", {})
         if domain.get("sid"):
             self._add_node(domain["sid"], domain.get("name", "domain"),
-                           "Domain", dn=domain.get("dn", ""))
+                           "Domain", dn=domain.get("dn", ""),
+                           maq=domain.get("maq", 0),
+                           password_policy=domain.get("password_policy", {}),
+                           lockout_policy=domain.get("lockout_policy", {}),
+                           store_cleartext=bool(
+                               domain.get("password_policy", {}).get("store_cleartext")
+                           ),
+                           prewin2000_exposure=domain.get("prewin2000_exposure", False),
+                           adminsdholder_drift_count=domain.get("adminsdholder_drift_count", 0),
+                           rodc_count=domain.get("rodc_count", 0),
+                           rodc_tier0_exposure_count=domain.get("rodc_tier0_exposure_count", 0),
+                           operating_system_inventory=domain.get("operating_system_inventory", {}))
 
         for sid, u in ad_data.get("users", {}).items():
             self._add_node(sid, u["name"], "User",
@@ -170,16 +208,53 @@ class ADGraph:
                            asreproastable=u["asreproastable"],
                            unconstrained=u["unconstrained"],
                            constrained=u.get("constrained", False),
+                           delegation_targets=u.get("delegation_targets", []),
+                           rbcd_trustees=u.get("rbcd_trustees", []),
                            spns=u["spns"],
                            admin_count=u["admin_count"],
                            has_password_hint=u.get("has_password_hint", False),
                            is_gmsa=u.get("is_gmsa", False),
-                           gmsa_password_readable=u.get("gmsa_password_readable", False))
+                           gmsa_password_readable=u.get("gmsa_password_readable", False),
+                           pwd_last_set=u.get("pwd_last_set"),
+                           pwd_age_days=u.get("pwd_age_days"),
+                           pwd_never_expires=u.get("pwd_never_expires", False),
+                           pwd_not_required=u.get("pwd_not_required", False),
+                           reversible_encryption=u.get("reversible_encryption", False),
+                           has_key_credential_link=u.get("has_key_credential_link", False),
+                           adminsdholder_checked=u.get("adminsdholder_checked", False),
+                           adminsdholder_drift=u.get("adminsdholder_drift", False),
+                           missing_protected_users=u.get("missing_protected_users", False),
+                           protected_user=u.get("protected_user", False),
+                           smartcard_required=u.get("smartcard_required", False),
+                           not_delegated=u.get("not_delegated", False),
+                           use_des_key_only=u.get("use_des_key_only", False),
+                           locked_out=u.get("locked_out", False),
+                           lockout_time=u.get("lockout_time"),
+                           logon_hours_restricted=u.get("logon_hours_restricted", False),
+                           user_workstations=u.get("user_workstations", []),
+                           primary_group_sid=u.get("primary_group_sid"),
+                           assigned_authn_policy=u.get("assigned_authn_policy", ""),
+                           authn_policy_assigned=u.get("authn_policy_assigned", False),
+                           account_expires=u.get("account_expires"),
+                           last_logon=u.get("last_logon"),
+                           last_logon_timestamp=u.get("last_logon_timestamp"),
+                           last_logon_age_days=u.get("last_logon_age_days"),
+                           stale=u.get("stale", False))
 
         for sid, g in ad_data.get("groups", {}).items():
             self._add_node(sid, g["name"], "Group",
                            dn=g["dn"],
-                           admin_count=g["admin_count"])
+                           admin_count=g["admin_count"],
+                           high_value=g.get("high_value", False),
+                           is_dns_admins=g.get("is_dns_admins", False),
+                           is_exchange_privileged=g.get("is_exchange_privileged", False),
+                           is_protected_users=g.get("is_protected_users", False),
+                           is_key_admin=g.get("is_key_admin", False),
+                           is_prewin2000_compatible=g.get("is_prewin2000_compatible", False),
+                           dangerous_members=g.get("dangerous_members", []),
+                           prewin2000_exposure=g.get("prewin2000_exposure", False),
+                           adminsdholder_checked=g.get("adminsdholder_checked", False),
+                           adminsdholder_drift=g.get("adminsdholder_drift", False))
 
         for sid, c in ad_data.get("computers", {}).items():
             role = c.get("computer_role", "workstation")
@@ -192,14 +267,23 @@ class ADGraph:
                            dn=c["dn"],
                            dns=c["dns"],
                            os=c["os"],
+                           os_version=c.get("os_version", ""),
+                           os_service_pack=c.get("os_service_pack", ""),
+                           os_display=c.get("os_display", c.get("os", "Unknown")),
                            ldap_type="Computer",
                            computer_role=role,
                            is_dc=c["is_dc"],
                            unconstrained=c["unconstrained"],
                            constrained=c["constrained"],
+                           delegation_targets=c.get("delegation_targets", []),
+                           rbcd_trustees=c.get("rbcd_trustees", []),
                            laps_readable=c.get("laps_readable", False),
                            laps_encrypted=c.get("laps_encrypted", False),
-                           is_gmsa=c.get("is_gmsa", False))
+                           is_gmsa=c.get("is_gmsa", False),
+                           is_rodc=c.get("is_rodc", False),
+                           rodc_revealed_users=c.get("rodc_revealed_users", []),
+                           rodc_tier0_revealed_users=c.get("rodc_tier0_revealed_users", []),
+                           rodc_tier0_exposure=c.get("rodc_tier0_exposure", False))
 
         for object_id, obj in ad_data.get("directory_objects", {}).items():
             self._add_node(
@@ -218,6 +302,69 @@ class ADGraph:
                 path=gpo.get("path", ""),
             )
 
+    def _add_domain_policy_edges(self, ad_data: dict):
+        """Represent non-zero MachineAccountQuota as an observed policy risk."""
+        domain = ad_data.get("domain", {})
+        domain_sid = domain.get("sid", "")
+        maq = int(domain.get("maq", 0) or 0)
+        if maq <= 0 or not domain_sid or domain_sid not in self.G:
+            return
+        authenticated_users = "S-1-5-11"
+        if authenticated_users not in self.G:
+            self._add_node(
+                authenticated_users,
+                "Authenticated Users",
+                "SpecialIdentity",
+                external=True,
+            )
+        _add_edge(
+            self.G,
+            authenticated_users,
+            domain_sid,
+            "MAQAbuse",
+            detail=f"MachineAccountQuota permits up to {maq} computer accounts per principal",
+            traversable=False,
+            quota=maq,
+        )
+
+    def _add_trust_edges(self, ad_data: dict):
+        """Represent trust direction and filtering posture without overclaiming risk."""
+        domain_sid = ad_data.get("domain", {}).get("sid", "")
+        if not domain_sid or domain_sid not in self.G:
+            return
+        for trust in ad_data.get("trusts", []):
+            partner = trust.get("partner", "")
+            if not partner:
+                continue
+            partner_id = trust.get("partner_sid") or f"domain:{partner.casefold()}"
+            if partner_id not in self.G:
+                self._add_node(
+                    partner_id, partner, "ExternalDomain",
+                    external=True,
+                    netbios=trust.get("partner_netbios", ""),
+                    domain_sid=trust.get("partner_sid", ""),
+                )
+            edge_type = (
+                "ForestTrust" if trust.get("is_forest")
+                else "NonTransitiveTrust" if not trust.get("is_transitive", True)
+                else "Trust"
+            )
+            detail = (
+                f"{trust.get('direction', 'Unknown')} {trust.get('trust_type', 'trust')}; "
+                f"SID filtering: {trust.get('sid_filtering_status', 'unknown')}"
+            )
+            extra = {
+                "detail": detail,
+                "traversable": True,
+                "sid_filtering_risk": trust.get("sid_filtering_risk", False),
+                "cross_org": trust.get("is_cross_org", False),
+            }
+            direction = trust.get("direction")
+            if direction in {"Outbound", "Bidirectional"}:
+                _add_edge(self.G, domain_sid, partner_id, edge_type, **extra)
+            if direction in {"Inbound", "Bidirectional"}:
+                _add_edge(self.G, partner_id, domain_sid, edge_type, **extra)
+
     # ── Membership edges ──────────────────────────────────────────────────────
 
     def _add_membership_edges(self, ad_data: dict):
@@ -226,24 +373,51 @@ class ADGraph:
         falling back to direct membership. This ensures paths through nested
         groups reach high-value targets correctly.
         """
+        group_data = ad_data.get("groups", {})
+
+        def relationship(group_sid: str) -> str:
+            group = group_data.get(group_sid, {})
+            if group.get("is_dns_admins"):
+                return "DNSAdmin"
+            if group.get("is_exchange_privileged"):
+                return "ExchangePermissions"
+            return "MemberOf"
+
         for sid, u in ad_data.get("users", {}).items():
             # Prefer transitive membership for graph reachability
             groups = u.get("effective_member_of") or u.get("member_of", [])
             for grp_sid in groups:
                 if grp_sid in self.G:
-                    _add_edge(self.G, sid, grp_sid, "MemberOf")
+                    _add_edge(self.G, sid, grp_sid, relationship(grp_sid))
 
         for sid, c in ad_data.get("computers", {}).items():
             groups = c.get("effective_member_of") or c.get("member_of", [])
             for grp_sid in groups:
                 if grp_sid in self.G:
-                    _add_edge(self.G, sid, grp_sid, "MemberOf")
+                    _add_edge(self.G, sid, grp_sid, relationship(grp_sid))
 
         for sid, g in ad_data.get("groups", {}).items():
             groups = g.get("effective_member_of") or g.get("member_of", [])
             for grp_sid in groups:
                 if grp_sid in self.G:
-                    _add_edge(self.G, sid, grp_sid, "MemberOf")
+                    _add_edge(self.G, sid, grp_sid, relationship(grp_sid))
+
+        for group_sid, group in group_data.items():
+            if not group.get("is_prewin2000_compatible") or group_sid not in self.G:
+                continue
+            for member_sid in group.get("dangerous_members", []):
+                if member_sid not in self.G:
+                    self._add_node(
+                        member_sid,
+                        self.sid_name.get(member_sid, member_sid),
+                        "SpecialIdentity",
+                        external=True,
+                    )
+                _add_edge(
+                    self.G, member_sid, group_sid, "PreWindows2000Access",
+                    detail="Broad principal is a member of Pre-Windows 2000 Compatible Access",
+                    traversable=False,
+                )
 
     def _add_structure_edges(self, ad_data: dict):
         """Add OU/container containment and GPO-link relationships."""
@@ -273,7 +447,10 @@ class ADGraph:
             for target_dn in gpo.get("linked_to", []):
                 target_id = dn_map.get(str(target_dn).lower())
                 if target_id and target_id in self.G:
-                    _add_edge(self.G, gpo["id"], target_id, "GPLink")
+                    _add_edge(
+                        self.G, gpo["id"], target_id, "GPOLink",
+                        detail=f"GPO '{gpo.get('name', gpo['id'])}' applied to {target_dn}",
+                    )
 
     def _add_dc_control_edges(self, ad_data: dict):
         """Project built-in administrative control from Tier-0 groups to DCs."""
@@ -309,6 +486,16 @@ class ADGraph:
 
             if u["asreproastable"]:
                 _add_edge(self.G, sid, sid, "ASREPRoastable")
+
+            if u.get("has_key_credential_link"):
+                _add_edge(
+                    self.G,
+                    sid,
+                    sid,
+                    "ShadowCredentials",
+                    detail="msDS-KeyCredentialLink is populated; validate that every key credential is authorized",
+                    traversable=False,
+                )
 
             if u["unconstrained"] and domain_sid and self.G.has_node(domain_sid):
                 _add_edge(self.G, sid, domain_sid, "UnconstrainedDelegation",
@@ -348,6 +535,21 @@ class ADGraph:
                 if trustee_sid in self.G:
                     _add_edge(self.G, trustee_sid, sid, "RBCD",
                               detail="msDS-AllowedToActOnBehalfOfOtherIdentity → impersonate any user")
+
+            if c.get("is_rodc"):
+                tier0_revealed = set(c.get("rodc_tier0_revealed_users", []))
+                for revealed_sid in c.get("rodc_revealed_users", []):
+                    if revealed_sid in self.G:
+                        _add_edge(
+                            self.G, sid, revealed_sid, "RODCCachedCredential",
+                            detail=(
+                                "RODC contains a replicated Tier-0 credential"
+                                if revealed_sid in tier0_revealed
+                                else "RODC contains a replicated credential for this principal"
+                            ),
+                            traversable=True,
+                            tier0_exposure=revealed_sid in tier0_revealed,
+                        )
 
     # ── ACL edges ────────────────────────────────────────────────────────────
 
@@ -410,17 +612,24 @@ class ADGraph:
                 tmpl_id, "CertTemplate", tmpl.get("acl_aces", [])
             )
 
-            if tmpl.get("esc1"):
-                for enroll_sid in tmpl.get("enroll_sids", []):
-                    if not self.G.has_node(enroll_sid):
+            for finding in tmpl.get("findings", []):
+                esc = finding.get("id")
+                if esc not in {"ESC1", "ESC2", "ESC3", "ESC4"}:
+                    continue
+                for principal in finding.get("principals", []):
+                    if not self.G.has_node(principal):
                         self._add_node(
-                            enroll_sid,
-                            self.sid_name.get(enroll_sid, enroll_sid),
+                            principal,
+                            self.sid_name.get(principal, principal),
                             "Principal",
                             external=True,
                         )
-                    _add_edge(self.G, enroll_sid, tmpl_id, "ADCS_ESC1",
-                              detail=f"ESC1: enroll as any principal via {tmpl['name']}")
+                    _add_edge(
+                        self.G, principal, tmpl_id, f"ADCS_{esc}",
+                        detail=f"{esc} candidate on template {tmpl['name']}",
+                        traversable=esc == "ESC1",
+                        confidence=finding.get("confidence", "unknown"),
+                    )
 
     def _add_embedded_acl_edges(self, target_id: str, target_type: str, aces: list[dict]):
         for ace in aces:

@@ -108,6 +108,42 @@ class GraphCoverageTests(unittest.TestCase):
         self.assertIn("S-1-5-21-1-2-3-1000", data["high_value"])
         self.assertTrue(any(edge["type"] == "AdminTo" for edge in data["graph"]["links"]))
 
+    def test_password_posture_and_gpo_links_are_projected_to_graph(self):
+        data = self.data()
+        domain = data["domain"]["sid"]
+        user = f"{domain}-1100"
+        data["domain"]["password_policy"] = {"store_cleartext": True, "min_length": 8}
+        data["domain"]["lockout_policy"] = {"threshold": 0}
+        data["users"][user].update({
+            "pwd_last_set": "2020-01-01T00:00:00+00:00",
+            "pwd_age_days": 2400,
+            "pwd_never_expires": True,
+            "pwd_not_required": True,
+            "last_logon_age_days": 900,
+            "stale": True,
+        })
+        ou_id = "GUID:ou"
+        ou_dn = "OU=Support,DC=lab,DC=example"
+        gpo_id = "GUID:gpo"
+        data["directory_objects"][ou_id] = {
+            "id": ou_id, "name": "Support", "type": "OU", "dn": ou_dn,
+        }
+        data["dn_map"] = {ou_dn.lower(): ou_id}
+        data["gpos"] = [{
+            "id": gpo_id, "guid": "gpo", "name": "Support Policy",
+            "dn": "CN={gpo},CN=Policies,CN=System,DC=lab,DC=example",
+            "path": r"\\lab.example\SysVol\lab.example\Policies\{gpo}",
+            "linked_to": [ou_dn],
+        }]
+
+        graph = ADGraph.build_from_data(data)
+
+        self.assertTrue(graph.G.nodes[domain]["store_cleartext"])
+        self.assertTrue(graph.G.nodes[user]["pwd_never_expires"])
+        self.assertEqual(graph.G.nodes[user]["pwd_age_days"], 2400)
+        edge = graph.G.get_edge_data(gpo_id, ou_id)["GPOLink"]
+        self.assertIn("Support Policy", edge["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

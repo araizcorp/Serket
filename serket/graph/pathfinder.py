@@ -269,6 +269,17 @@ def get_attack_surface(ag: ADGraph, ad_data: dict) -> dict:
         "password_in_desc":      [],
         "laps_readable":         [],
         "gmsa_accounts":         [],
+        "shadow_credentials":    [],
+        "adminsdholder_drift":   [],
+        "protected_users_gaps":  [],
+        "rodc_exposure":         [],
+        "special_group_exposure": [],
+        "uac_risks":             [],
+        "operating_systems":     ad_data.get("domain", {}).get("operating_system_inventory", {}),
+        "trust_risks":           [
+            trust for trust in ad_data.get("trusts", [])
+            if trust.get("sid_filtering_risk") or trust.get("tgt_delegation_enabled")
+        ],
         "trusts":                ad_data.get("trusts", []),
         "domain_maq":            ad_data.get("domain", {}).get("maq", 10),
         "lockout_threshold":     ad_data.get("domain", {}).get("lockout_threshold", 0),
@@ -294,6 +305,12 @@ def get_attack_surface(ag: ADGraph, ad_data: dict) -> dict:
                 "sid": src, "name": src_d.get("name", src),
                 "type": src_d.get("type", "?"),
                 "is_dc": src_d.get("is_dc", False),
+            })
+        elif etype == "ConstrainedDelegation":
+            surface["constrained"].append({
+                "sid": src, "name": src_d.get("name", src),
+                "type": src_d.get("type", "?"),
+                "targets": src_d.get("delegation_targets", []),
             })
         elif etype == "DCSync":
             surface["dcsync"].append({
@@ -362,6 +379,42 @@ def get_attack_surface(ag: ADGraph, ad_data: dict) -> dict:
                 "sid": sid,
                 "name": data.get("name", sid),
                 "password_readable": data.get("gmsa_password_readable", False),
+            })
+        if data.get("has_key_credential_link"):
+            surface["shadow_credentials"].append({
+                "sid": sid, "name": data.get("name", sid),
+            })
+        if data.get("adminsdholder_drift"):
+            surface["adminsdholder_drift"].append({
+                "sid": sid, "name": data.get("name", sid), "type": data.get("type", "?"),
+            })
+        if data.get("missing_protected_users"):
+            surface["protected_users_gaps"].append({
+                "sid": sid, "name": data.get("name", sid),
+            })
+        if data.get("is_rodc") and (
+            data.get("rodc_revealed_users") or data.get("rodc_tier0_exposure")
+        ):
+            surface["rodc_exposure"].append({
+                "sid": sid,
+                "name": data.get("name", sid),
+                "revealed_count": len(data.get("rodc_revealed_users", [])),
+                "tier0_count": len(data.get("rodc_tier0_revealed_users", [])),
+            })
+        if data.get("prewin2000_exposure"):
+            surface["special_group_exposure"].append({
+                "sid": sid, "name": data.get("name", sid), "finding": "PreWindows2000Access",
+            })
+        risks = [
+            label for enabled, label in (
+                (data.get("use_des_key_only"), "DES-only Kerberos"),
+                (data.get("pwd_not_required"), "Password not required"),
+                (data.get("reversible_encryption"), "Reversible encryption"),
+            ) if enabled
+        ]
+        if risks:
+            surface["uac_risks"].append({
+                "sid": sid, "name": data.get("name", sid), "risks": risks,
             })
 
     # De-duplicate and sort ACL abuses — high-value targets first
