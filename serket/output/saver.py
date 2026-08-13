@@ -8,14 +8,18 @@ AraizCorp LLC — Serket
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import tempfile
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 _STAMP = lambda: datetime.now().strftime("%Y%m%d_%H%M%S")
+PACKAGE_SCHEMA_VERSION = 1
 
 
 def _json_safe(obj: Any) -> Any:
@@ -56,7 +60,7 @@ def save_results(
 
     meta = {
         "tool": "Serket",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "vendor": "AraizCorp LLC",
         "generated": datetime.now().isoformat(),
         "domain": ad_data.get("domain", {}).get("name", ""),
@@ -93,6 +97,7 @@ def save_results(
             "paths": analysis.get("paths", []),
         },
         "graph": graph_component,
+        "interchange": _build_interchange(ad_data),
     }
     files: dict[str, str] = {}
     for category, value in components.items():
@@ -106,15 +111,80 @@ def save_results(
     txt_path = os.path.join(bundle_dir, "report.txt")
     _write_text_report(txt_path, ad_data, graph_stats, analysis)
 
-    # A bundle becomes discoverable only after every component and report exist.
+    integrity = {
+        filename: _file_integrity(Path(bundle_dir) / filename)
+        for filename in [*files.values(), "report.txt"]
+    }
     _write_json(os.path.join(bundle_dir, "manifest.json"), {
         "format": "serket-collection-bundle",
         "schema_version": 1,
         "meta": meta,
         "files": files,
+        "integrity": {"algorithm": "sha256", "files": integrity},
     })
-
+    create_serket_package(bundle_dir)
     return bundle_dir
+
+
+def _build_interchange(ad_data: dict) -> dict:
+    identities = []
+    for family, object_type in (
+        ("users", "User"), ("groups", "Group"), ("computers", "Computer"),
+    ):
+        for object_id, value in ad_data.get(family, {}).items():
+            identities.append({
+                "id": object_id,
+                "type": object_type,
+                "name": value.get("name", ""),
+                "dn": value.get("dn", ""),
+            })
+    return {
+        "schema": "araizcorp-identity-bridge/v1",
+        "consumer": "Reliquary",
+        "domain": ad_data.get("domain", {}),
+        "identities": identities,
+        "sensitive_values_included": False,
+    }
+
+
+def _file_integrity(path: Path) -> dict:
+    raw = path.read_bytes()
+    return {"sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)}
+
+
+def _verify_integrity(root: Path, manifest: dict) -> None:
+    integrity = manifest.get("integrity")
+    if integrity is None:
+        return
+    if integrity.get("algorithm") != "sha256" or not isinstance(integrity.get("files"), dict):
+        raise ValueError("Invalid Serket bundle integrity metadata")
+    for filename, expected in integrity["files"].items():
+        path = (root / filename).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("Bundle integrity member escapes its collection directory") from exc
+        if not path.is_file() or _file_integrity(path) != expected:
+            raise ValueError(f"Serket bundle integrity check failed: {filename}")
+
+
+def create_serket_package(bundle_dir: str | Path, output_path: str | Path | None = None) -> str:
+    root = Path(bundle_dir).expanduser().resolve()
+    manifest_path = root / "manifest.json"
+    if not root.is_dir() or not manifest_path.is_file():
+        raise ValueError("A complete Serket bundle directory is required")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    _verify_integrity(root, manifest)
+    destination = (Path(output_path).expanduser() if output_path else root.with_suffix(".serket")).resolve()
+    temporary = destination.with_suffix(".serket.tmp")
+    members = ["manifest.json", *manifest.get("files", {}).values(), "report.txt"]
+    with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(dict.fromkeys(members)):
+            path = (root / name).resolve()
+            path.relative_to(root)
+            archive.write(path, arcname=name)
+    os.replace(temporary, destination)
+    return str(destination)
 
 
 def _write_json(path: str, value: Any) -> None:
@@ -223,6 +293,10 @@ def load_results(json_path: str) -> dict:
     If graph data is present, the ADGraph can be reconstructed via reconstruct_graph().
     """
     source = Path(json_path).expanduser()
+    if source.is_file() and source.suffix.casefold() == ".serket":
+        data = _load_package(source)
+        _repair_legacy_binary_sids(data)
+        return data
     if source.is_dir():
         source = source / "manifest.json"
     with source.open("r", encoding="utf-8") as fh:
@@ -243,6 +317,7 @@ def _load_bundle(manifest_path: Path, manifest: dict) -> dict:
         raise ValueError("Invalid Serket bundle: files map is missing")
 
     root = manifest_path.resolve().parent
+    _verify_integrity(root, manifest)
     components: dict[str, Any] = {}
     for category, filename in files.items():
         if not isinstance(category, str) or not isinstance(filename, str):
@@ -288,10 +363,32 @@ def _load_bundle(manifest_path: Path, manifest: dict) -> dict:
         "trusts": components["trusts"],
         "acls": components["permissions"],
         "adcs": components["adcs"],
+        "interchange": components.get("interchange", {}),
         **summary,
         **analysis,
         **graph,
     }
+
+
+def _load_package(package_path: Path) -> dict:
+    try:
+        archive = zipfile.ZipFile(package_path, "r")
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ValueError("Invalid Serket assessment package") from exc
+    with archive, tempfile.TemporaryDirectory(prefix="serket-package-") as temp:
+        names = archive.namelist()
+        if len(names) != len(set(names)) or "manifest.json" not in names:
+            raise ValueError("Invalid Serket package member list")
+        for name in names:
+            member = Path(name)
+            if member.is_absolute() or ".." in member.parts or len(member.parts) != 1:
+                raise ValueError("Serket package contains an unsafe member path")
+        archive.extractall(temp)
+        manifest_path = Path(temp) / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if manifest.get("schema_version") != PACKAGE_SCHEMA_VERSION:
+            raise ValueError(f"Unsupported Serket package schema: {manifest.get('schema_version')!r}")
+        return _load_bundle(manifest_path, manifest)
 
 
 def _repair_legacy_binary_sids(data: dict) -> bool:

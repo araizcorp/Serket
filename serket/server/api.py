@@ -3,10 +3,12 @@ Embedded FastAPI server for the Serket Workbench interface.
 
 The server is deliberately local-only in native mode. Result files may contain
 sensitive directory metadata, so the runtime disables caching and exposes no
-interactive API documentation.
+interactive API documentation. The only mutation route applies validated
+Keyring metadata to the current process; it never writes a result package.
 """
 from __future__ import annotations
 
+import json
 import os
 import threading
 import webbrowser
@@ -37,9 +39,9 @@ def _normalise_graph(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def create_app(data: dict[str, Any]):
-    """Create the local, read-only API used by Serket Workbench."""
+    """Create the local API used by Serket Workbench."""
     try:
-        from fastapi import FastAPI, Request
+        from fastapi import FastAPI, HTTPException, Request
         from fastapi.responses import HTMLResponse
         from fastapi.staticfiles import StaticFiles
     except ImportError as exc:
@@ -49,6 +51,9 @@ def create_app(data: dict[str, Any]):
         ) from exc
 
     html = _load_ui()
+    # FastAPI resolves postponed annotations through module globals, while
+    # optional server imports intentionally live inside create_app().
+    globals()["Request"] = Request
     app = FastAPI(title="Serket Workbench", docs_url=None, redoc_url=None)
     assets_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "ui"))
     app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
@@ -104,6 +109,34 @@ def create_app(data: dict[str, Any]):
     async def api_graph():
         return _normalise_graph(data)
 
+    @app.post("/api/enrich")
+    async def api_enrich(request: Request):
+        """Apply a validated Keyring bridge to this in-memory local session."""
+        from serket.enrichment import (
+            MAX_BRIDGE_BYTES,
+            EnrichmentError,
+            apply_bridge,
+            validate_bridge,
+        )
+
+        declared = request.headers.get("content-length")
+        if declared and (not declared.isdigit() or int(declared) > MAX_BRIDGE_BYTES):
+            raise HTTPException(status_code=413, detail="bridge exceeds the 8 MiB safety limit")
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().casefold()
+        if content_type != "application/json":
+            raise HTTPException(status_code=415, detail="application/json is required")
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > MAX_BRIDGE_BYTES:
+                raise HTTPException(status_code=413, detail="bridge exceeds the 8 MiB safety limit")
+        try:
+            bridge = json.loads(body.decode("utf-8"))
+            validate_bridge(bridge)
+            return apply_bridge(data, bridge)
+        except (UnicodeError, json.JSONDecodeError, EnrichmentError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.get("/api/adcs")
     async def api_adcs():
         return data.get("adcs", {})
@@ -119,6 +152,11 @@ def create_app(data: dict[str, Any]):
     @app.get("/api/meta")
     async def api_meta():
         return data.get("meta", {})
+
+    @app.get("/api/detection-catalog")
+    async def api_detection_catalog():
+        from serket.detection_catalog import catalog_payload
+        return catalog_payload()
 
     from serket.server.query import install_query_route
 
@@ -150,7 +188,8 @@ def run_server(data: dict, port: int = 8080) -> None:
 
     print(
         f"\n  Serket Workbench -> {url}\n"
-        "  Read-only session. Press Ctrl+C to stop.\n"
+        "  Local-only session. Keyring API enrichment stays in memory.\n"
+        "  Press Ctrl+C to stop.\n"
     )
 
     # Native runs bind to loopback. The container binds internally to all

@@ -61,8 +61,8 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawTextHelpFormatter,
     )
     p.add_argument(
-        "command", nargs="?", choices=["server"], metavar="{server}",
-        help="Open the latest saved result in the interactive web UI",
+        "command", nargs="?", choices=["server", "enrich"], metavar="{server,enrich}",
+        help="Open the web UI or apply a Keyring credential bridge",
     )
     auth = p.add_argument_group("Authentication")
     auth.add_argument(
@@ -88,12 +88,16 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Skip ACL collection (faster, fewer edges)")
     opt.add_argument("--no-adcs",     action="store_true",
                      help="Skip ADCS template enumeration")
-    opt.add_argument("-o", "--output", default=DEFAULT_OUTPUT, metavar="DIR",
-                     help=f"Output directory (default: {DEFAULT_OUTPUT})")
+    opt.add_argument("-o", "--output", default=DEFAULT_OUTPUT, metavar="PATH",
+                     help=f"Output directory, or FILE.serket for enrich (default: {DEFAULT_OUTPUT})")
     opt.add_argument("--load", metavar="PATH",
                      help="Load a result bundle, manifest, or legacy results JSON")
     opt.add_argument("--serve", metavar="PATH",
                      help="Launch the web UI from a bundle, manifest, or legacy JSON")
+    opt.add_argument("--input", metavar="PATH",
+                     help="Input .serket package for the enrich command")
+    opt.add_argument("--bridge", metavar="PATH",
+                     help="Keyring serket-bridge JSON for the enrich command")
     opt.add_argument("--port", type=int, default=8080,
                      help="Web UI port for server/--serve (default: 8080, always 127.0.0.1)")
     opt.add_argument("--quiet", "-q", action="store_true",
@@ -180,6 +184,7 @@ def _run_collect(args) -> None:
         show_trusts(ad_data)
         show_paths(analysis, max_display=10)
         console.print(f"\n[bold green]✓ Results saved to:[/] [cyan]{out_dir}[/]\n")
+        console.print(f"[bold green]Portable package:[/] [cyan]{out_dir}.serket[/]")
         console.print(
             f"  [dim]Tip: launch web UI with:[/]  "
             f"[bold white]serket server -d {args.domain}[/]\n"
@@ -263,6 +268,11 @@ def _find_latest_result(output_dir: str, domain: str | None = None) -> str | Non
                 and path.name.casefold().startswith(prefix)
                 and (path / "manifest.json").is_file()
             )
+            is_package = (
+                path.is_file()
+                and path.name.casefold().startswith(prefix)
+                and bool(re.search(r"_\d{8}_\d{6}\.serket$", path.name, re.IGNORECASE))
+            )
             is_legacy_json = (
                 path.is_file()
                 and path.name.casefold().startswith(prefix)
@@ -270,7 +280,7 @@ def _find_latest_result(output_dir: str, domain: str | None = None) -> str | Non
             )
         except OSError:
             continue
-        if not (is_bundle or is_legacy_json):
+        if not (is_bundle or is_package or is_legacy_json):
             continue
         results.append(path)
 
@@ -279,7 +289,7 @@ def _find_latest_result(output_dir: str, domain: str | None = None) -> str | Non
     # Serket filenames end in YYYYMMDD_HHMMSS, which remains reliable when
     # result files are copied between systems and their filesystem mtime changes.
     def collection_stamp(path: Path) -> str:
-        match = re.search(r"_(\d{8}_\d{6})(?:\.json)?$", path.name, re.IGNORECASE)
+        match = re.search(r"_(\d{8}_\d{6})(?:\.json|\.serket)?$", path.name, re.IGNORECASE)
         return match.group(1) if match else ""
 
     return str(max(results, key=lambda path: (collection_stamp(path), path.name)))
@@ -339,6 +349,27 @@ def _run_serve(json_path: str, port: int = 8080) -> None:
     run_server(data, port=port)
 
 
+def _run_enrich(input_path: str | None, bridge_path: str | None, output_path: str) -> None:
+    """Apply Keyring metadata and emit a new portable Serket package."""
+    from serket.enrichment import apply_bridge, load_bridge, save_enriched_package
+
+    if not input_path or not bridge_path:
+        raise ValueError("serket enrich requires --input and --bridge")
+    if Path(output_path).suffix.casefold() != ".serket":
+        raise ValueError("serket enrich requires --output FILE.serket")
+    if Path(input_path).expanduser().resolve() == Path(output_path).expanduser().resolve():
+        raise ValueError("enriched output must not overwrite the input package")
+    data = load_results(input_path)
+    report = apply_bridge(data, load_bridge(bridge_path))
+    destination = save_enriched_package(data, output_path)
+    console.print(f"[green]Enriched package written:[/] [cyan]{destination}[/]")
+    console.print(
+        f"  Matched: [bold]{report['matched']}[/]  "
+        f"Unmatched: [bold]{report['unmatched']}[/]  "
+        f"Ambiguous: [bold]{report['ambiguous']}[/]"
+    )
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -353,6 +384,14 @@ def main() -> None:
     # ── Automatic server mode ─────────────────────────────────────────────────
     if args.command == "server":
         _run_server_command(args.output, args.domain, args.port)
+        return
+
+    if args.command == "enrich":
+        try:
+            _run_enrich(args.input, args.bridge, args.output)
+        except (OSError, ValueError) as exc:
+            console.print(f"[red][!] Enrichment failed: {exc}[/]")
+            sys.exit(2)
         return
 
     # ── Serve mode ────────────────────────────────────────────────────────────
