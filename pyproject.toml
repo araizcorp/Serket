@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "araizcorp-serket"
-version = "2.0.0"
+version = "2.1.0"
 description = "Silent Active Directory attack-path mapper and local analysis workbench"
 readme = "README.md"
 requires-python = ">=3.10"

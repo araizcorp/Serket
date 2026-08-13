@@ -9,7 +9,8 @@ AraizCorp LLC — Serket
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+import hashlib
+from datetime import datetime, timedelta, timezone
 import struct
 import time
 from typing import Optional
@@ -21,6 +22,7 @@ from ldap3 import (
 from ldap3.core.exceptions import LDAPBindError, LDAPException
 from ldap3.protocol.microsoft import security_descriptor_control
 
+from serket.collector.adcs_analysis import analyze_ca, analyze_template, summarize
 from serket.collector.acl_parser import (
     format_guid, parse_security_descriptor, parse_sid, WELL_KNOWN_SIDS,
 )
@@ -28,11 +30,17 @@ from serket.collector.acl_parser import (
 
 # ── UAC flag masks ────────────────────────────────────────────────────────────
 UAC_ACCOUNTDISABLE              = 0x00000002
+UAC_PASSWD_NOTREQD              = 0x00000020
+UAC_ENCRYPTED_TEXT_PWD_ALLOWED  = 0x00000080
+UAC_SMARTCARD_REQUIRED          = 0x00040000
 UAC_DONT_REQ_PREAUTH            = 0x00400000
+UAC_DONT_EXPIRE_PASSWORD        = 0x00010000
 UAC_TRUSTED_FOR_DELEGATION      = 0x00080000   # Unconstrained
 UAC_TRUSTED_TO_AUTH_FOR_DELEGATION = 0x01000000  # Constrained (S4U2Proxy)
 UAC_NOT_DELEGATED               = 0x00100000
+UAC_USE_DES_KEY_ONLY            = 0x00200000
 UAC_SERVER_TRUST                = 0x00002000   # Domain Controller
+UAC_PARTIAL_SECRETS_ACCOUNT     = 0x04000000   # Read-only domain controller
 
 # ── ADCS ESC1 flags ───────────────────────────────────────────────────────────
 ENROLLEE_SUPPLIES_SUBJECT       = 0x00000001   # msPKI-Certificate-Name-Flag
@@ -50,12 +58,28 @@ HIGH_VALUE_RIDS = {
     "519": "Enterprise Admins",
     "520": "Group Policy Creator Owners",
     "521": "Read-Only Domain Controllers",
+    "525": "Protected Users",
+    "571": "Key Admins",
+    "572": "Enterprise Key Admins",
     "553": "RAS and IAS Servers",
     "544": "BUILTIN Administrators",
     "548": "Account Operators",
     "549": "Server Operators",
     "550": "Print Operators",
     "551": "Backup Operators",
+}
+
+_DNS_ADMIN_NAMES = {"dnsadmins", "dns admins"}
+_EXCHANGE_HIGH_VALUE_NAMES = {
+    "exchange trusted subsystem",
+    "exchange windows permissions",
+    "exchange organization administrators",
+    "exchange recipient administrators",
+}
+_DANGEROUS_PREWIN2000_MEMBERS = {
+    "S-1-1-0",   # Everyone
+    "S-1-5-7",   # Anonymous Logon
+    "S-1-5-11",  # Authenticated Users
 }
 
 # ── Objects whose ACLs we always collect ─────────────────────────────────────
@@ -106,6 +130,138 @@ def _int(val, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _filetime_to_datetime(value) -> Optional[datetime]:
+    """Normalize an AD FILETIME (or ldap3 datetime) to an aware UTC datetime."""
+    value = _first(value)
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return (
+            value.replace(tzinfo=timezone.utc)
+            if value.tzinfo is None else value.astimezone(timezone.utc)
+        )
+    try:
+        raw = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if raw in (0, 0x7FFFFFFFFFFFFFFF):
+        return None
+    try:
+        return datetime.fromtimestamp(
+            (raw - 116444736000000000) / 10_000_000,
+            tz=timezone.utc,
+        )
+    except (OSError, OverflowError, ValueError):
+        return None
+
+
+def _filetime_to_iso(value) -> Optional[str]:
+    parsed = _filetime_to_datetime(value)
+    return parsed.isoformat() if parsed else None
+
+
+def _datetime_attr_to_iso(value) -> Optional[str]:
+    value = _first(value)
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return (
+            value.replace(tzinfo=timezone.utc)
+            if value.tzinfo is None else value.astimezone(timezone.utc)
+        ).isoformat()
+    return str(value)
+
+
+def _days_since(value: Optional[datetime]) -> Optional[int]:
+    if value is None:
+        return None
+    return max(0, (datetime.now(timezone.utc) - value).days)
+
+
+def _windows_interval_to_seconds(value) -> int:
+    """Convert an AD duration (negative 100 ns ticks) without losing minutes."""
+    value = _first(value)
+    if value in (None, "", 0, "0"):
+        return 0
+    if isinstance(value, timedelta):
+        return abs(int(value.total_seconds()))
+    try:
+        return abs(int(value)) // 10_000_000
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _windows_interval_to_days(value) -> int:
+    return _windows_interval_to_seconds(value) // 86400
+
+
+def _windows_interval_to_minutes(value) -> int:
+    return _windows_interval_to_seconds(value) // 60
+
+
+def _parse_pwd_properties(value) -> dict[str, bool]:
+    props = _int(value)
+    return {
+        "complexity_required": bool(props & 0x01),
+        "no_anon_change": bool(props & 0x02),
+        "no_clear_change": bool(props & 0x04),
+        "lockout_admins": bool(props & 0x08),
+        "store_cleartext": bool(props & 0x10),
+    }
+
+
+def _sid_from_dn(value: str) -> str:
+    """Extract a canonical SID from ForeignSecurityPrincipal-style DNs."""
+    match = re.search(r"(?:^|,)CN=(S-\d+(?:-\d+)+)(?:,|$)", str(value), re.IGNORECASE)
+    return match.group(1).upper() if match else ""
+
+
+def _linked_dn(value) -> str:
+    """Normalize DN, DN-Binary and DN-String link values returned by ldap3."""
+    text = _str(value).strip()
+    if re.match(r"^[BS]:\d+:", text, re.IGNORECASE):
+        parts = text.split(":", 3)
+        return parts[3] if len(parts) == 4 else ""
+    match = re.search(r"(?i)(?:CN|OU|DC)=", text)
+    return text[match.start():] if match else text
+
+
+def _dacl_fingerprint(raw_sd: bytes) -> str:
+    """Hash the exact self-relative DACL bytes for AdminSDHolder comparison."""
+    # TODO(pack3): add an optional semantic fingerprint that canonicalizes ACEs
+    # before hashing. Keep this exact fingerprint for byte-level drift evidence.
+    if not isinstance(raw_sd, (bytes, bytearray)) or len(raw_sd) < 20:
+        return ""
+    dacl_offset = struct.unpack_from("<L", raw_sd, 16)[0]
+    if not dacl_offset or dacl_offset + 8 > len(raw_sd):
+        return ""
+    acl_size = struct.unpack_from("<H", raw_sd, dacl_offset + 2)[0]
+    if acl_size < 8 or dacl_offset + acl_size > len(raw_sd):
+        return ""
+    return hashlib.sha256(bytes(raw_sd[dacl_offset:dacl_offset + acl_size])).hexdigest()
+
+
+def _normalize_os_version(value: str) -> str:
+    """Return a stable dotted LDAP OS version without guessing the product."""
+    version = " ".join(str(value or "").split())
+    match = re.fullmatch(r"(\d+(?:\.\d+)*)\s*\((\d+)\)", version)
+    return f"{match.group(1)}.{match.group(2)}" if match else version
+
+
+def _os_inventory_key(name: str, version: str, service_pack: str) -> str:
+    """Build a stable aggregate key while preserving os_display for humans."""
+    product = " ".join(str(name or "").split())
+    product = re.sub(r"(?i)^Microsoft\s+", "", product)
+    product = re.sub(r"(?i)^Windows Server\s+", "Server ", product)
+    return " ".join(
+        part for part in (
+            product,
+            _normalize_os_version(version),
+            " ".join(str(service_pack or "").split()),
+        ) if part
+    ) or "Unknown"
 
 
 def _mapping_value(mapping: dict, name: str, default=None):
@@ -252,6 +408,8 @@ class LDAPCollector:
 
         self._dn_map:   dict[str, str] = {}   # lower(DN) → SID
         self._sid_name: dict[str, str] = {}   # SID → display name
+        self._dacl_fingerprints: dict[str, str] = {}
+        self._adminsdholder_dacl_fingerprint: str = ""
 
     # ── Connection ────────────────────────────────────────────────────────────
 
@@ -408,8 +566,13 @@ class LDAPCollector:
         entries = self._search(
             self.base_dn,
             "(objectClass=domain)",
-            ["objectSid", "distinguishedName", "minPwdLength",
-             "lockoutThreshold", "ms-DS-MachineAccountQuota"],
+            [
+                "objectSid", "distinguishedName", "minPwdLength",
+                "minPwdAge", "maxPwdAge", "pwdHistoryLength",
+                "lockoutThreshold", "lockoutDuration",
+                "lockoutObservationWindow", "pwdProperties",
+                "ms-DS-MachineAccountQuota",
+            ],
             scope=BASE,
         )
         if not entries:
@@ -423,13 +586,31 @@ class LDAPCollector:
                 "The domain objectSid could not be decoded from the LDAP raw response"
             )
 
+        password_flags = _parse_pwd_properties(attrs.get("pwdProperties"))
+        password_policy = {
+            "min_length": _int(attrs.get("minPwdLength")),
+            "min_age_days": _windows_interval_to_days(attrs.get("minPwdAge")),
+            "max_age_days": _windows_interval_to_days(attrs.get("maxPwdAge")),
+            "history_length": _int(attrs.get("pwdHistoryLength")),
+            **password_flags,
+        }
+        lockout_policy = {
+            "threshold": _int(attrs.get("lockoutThreshold")),
+            "duration_minutes": _windows_interval_to_minutes(attrs.get("lockoutDuration")),
+            "observation_window_minutes": _windows_interval_to_minutes(
+                attrs.get("lockoutObservationWindow")
+            ),
+        }
         result = {
             "name":              self.domain,
             "dn":                self.base_dn,
             "sid":               self.domain_sid,
-            "min_pwd_length":    _int(attrs.get("minPwdLength")),
-            "lockout_threshold": _int(attrs.get("lockoutThreshold")),
+            # Preserve the v2.0 flat keys for older consumers.
+            "min_pwd_length":    password_policy["min_length"],
+            "lockout_threshold": lockout_policy["threshold"],
             "maq":               _int(attrs.get("ms-DS-MachineAccountQuota"), 10),
+            "password_policy":   password_policy,
+            "lockout_policy":    lockout_policy,
         }
         self._sid_name[self.domain_sid] = self.domain
         self._dn_map[self.base_dn.lower()] = self.domain_sid
@@ -446,7 +627,11 @@ class LDAPCollector:
                 "samAccountName", "userPrincipalName", "distinguishedName",
                 "objectSid", "memberOf", "userAccountControl",
                 "servicePrincipalName", "adminCount", "description",
-                "mail", "pwdLastSet", "lastLogon",
+                "mail", "pwdLastSet", "accountExpires", "lastLogon",
+                "lastLogonTimestamp", "lockoutTime", "logonHours",
+                "userWorkstations", "primaryGroupID",
+                "msDS-User-Account-Control-Computed",
+                "msDS-KeyCredentialLink", "msDS-AssignedAuthNPolicy",
                 "msDS-AllowedToActOnBehalfOfOtherIdentity", "msDS-AllowedToDelegateTo",
                 "sIDHistory",
             ],
@@ -482,6 +667,29 @@ class LDAPCollector:
                     sid_hist.append(s)
 
             description = _str(attrs.get("description"))
+            pwd_last_set = _filetime_to_datetime(attrs.get("pwdLastSet"))
+            last_logon = _filetime_to_datetime(attrs.get("lastLogon"))
+            last_logon_timestamp = _filetime_to_datetime(
+                attrs.get("lastLogonTimestamp")
+            )
+            last_activity = last_logon_timestamp or last_logon
+            pwd_age_days = _days_since(pwd_last_set)
+            last_logon_age_days = _days_since(last_activity)
+            lockout_time = _filetime_to_datetime(attrs.get("lockoutTime"))
+            computed_uac_raw = attrs.get("msDS-User-Account-Control-Computed")
+            computed_uac = _int(computed_uac_raw)
+            locked_out = (
+                bool(computed_uac & 0x10)
+                if _first(computed_uac_raw) not in (None, "")
+                else lockout_time is not None
+            )
+            raw_workstations = _as_list(attrs.get("userWorkstations"))
+            user_workstations = [
+                item.strip()
+                for raw in raw_workstations
+                for item in str(raw).split(",")
+                if item.strip()
+            ]
 
             users[sid] = {
                 "sid":                    sid,
@@ -503,6 +711,29 @@ class LDAPCollector:
                 "description":            description,
                 "has_password_hint":      _has_password_hint(description),
                 "mail":                   _str(attrs.get("mail")),
+                "pwd_last_set":           pwd_last_set.isoformat() if pwd_last_set else None,
+                "pwd_age_days":           pwd_age_days,
+                "pwd_never_expires":      bool(uac & UAC_DONT_EXPIRE_PASSWORD),
+                "pwd_not_required":       bool(uac & UAC_PASSWD_NOTREQD),
+                "reversible_encryption":  bool(uac & UAC_ENCRYPTED_TEXT_PWD_ALLOWED),
+                "account_expires":        _filetime_to_iso(attrs.get("accountExpires")),
+                "last_logon":             last_logon.isoformat() if last_logon else None,
+                "last_logon_timestamp":   (
+                    last_logon_timestamp.isoformat() if last_logon_timestamp else None
+                ),
+                "last_logon_age_days":    last_logon_age_days,
+                "stale":                  last_logon_age_days is None or last_logon_age_days > 180,
+                "has_key_credential_link": bool(_raw_values(entry, "msDS-KeyCredentialLink")),
+                "smartcard_required":      bool(uac & UAC_SMARTCARD_REQUIRED),
+                "not_delegated":           bool(uac & UAC_NOT_DELEGATED),
+                "use_des_key_only":        bool(uac & UAC_USE_DES_KEY_ONLY),
+                "locked_out":              locked_out,
+                "lockout_time":            lockout_time.isoformat() if lockout_time else None,
+                "logon_hours_restricted":  bool(_raw_values(entry, "logonHours")),
+                "user_workstations":       user_workstations,
+                "primary_group_id":        _int(attrs.get("primaryGroupID"), 513),
+                "assigned_authn_policy":   _str(attrs.get("msDS-AssignedAuthNPolicy")),
+                "authn_policy_assigned":   bool(_str(attrs.get("msDS-AssignedAuthNPolicy"))),
             }
             self._dn_map[dn.lower()]   = sid
             self._sid_name[sid]        = sam
@@ -599,7 +830,22 @@ class LDAPCollector:
             dn  = entry["dn"]
 
             rid        = sid.rsplit("-", 1)[-1]
-            high_value = rid in HIGH_VALUE_RIDS
+            normalized = sam.casefold().strip()
+            is_dns_admins = normalized in _DNS_ADMIN_NAMES
+            is_exchange_privileged = normalized in _EXCHANGE_HIGH_VALUE_NAMES
+            is_protected_users = rid == "525" or normalized == "protected users"
+            is_key_admin = rid in {"571", "572"} or normalized in {
+                "key admins", "enterprise key admins"
+            }
+            is_prewin2000 = sid.upper() == "S-1-5-32-554" or normalized == (
+                "pre-windows 2000 compatible access"
+            )
+            high_value = (
+                rid in HIGH_VALUE_RIDS
+                or is_dns_admins
+                or is_exchange_privileged
+                or is_key_admin
+            )
 
             groups[sid] = {
                 "sid":          sid,
@@ -610,6 +856,11 @@ class LDAPCollector:
                 "admin_count":  _int(attrs.get("adminCount")),
                 "high_value":   high_value,
                 "description":  _str(attrs.get("description")),
+                "is_dns_admins": is_dns_admins,
+                "is_exchange_privileged": is_exchange_privileged,
+                "is_protected_users": is_protected_users,
+                "is_key_admin": is_key_admin,
+                "is_prewin2000_compatible": is_prewin2000,
             }
             self._dn_map[dn.lower()] = sid
             self._sid_name[sid]      = sam
@@ -626,8 +877,11 @@ class LDAPCollector:
             [
                 "samAccountName", "dNSHostName", "distinguishedName",
                 "objectSid", "userAccountControl", "operatingSystem",
-                "memberOf", "msDS-AllowedToDelegateTo",
+                "operatingSystemVersion", "operatingSystemServicePack",
+                "memberOf", "primaryGroupID", "msDS-AllowedToDelegateTo",
                 "msDS-AllowedToActOnBehalfOfOtherIdentity",
+                "msDS-isRODC", "msDS-RevealedUsers", "msDS-RevealedList",
+                "msDS-RevealOnDemandGroup", "msDS-NeverRevealGroup",
                 # Legacy Microsoft LAPS and modern Windows LAPS. Values are
                 # returned only when the bound identity has read permission.
                 "ms-Mcs-AdmPwd", "ms-Mcs-AdmPwdExpirationTime",
@@ -650,6 +904,11 @@ class LDAPCollector:
             is_dc         = bool(uac & UAC_SERVER_TRUST)
             unconstrained = bool(uac & UAC_TRUSTED_FOR_DELEGATION)
             constrained   = bool(uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION)
+            is_rodc = bool(
+                uac & UAC_PARTIAL_SECRETS_ACCOUNT
+                or _first(_mapping_value(attrs, "msDS-isRODC"), False)
+                in (True, "TRUE", "True", "true", 1, "1")
+            )
 
             rbcd_raw = _raw_first(entry, "msDS-AllowedToActOnBehalfOfOtherIdentity")
             rbcd_trustees = []
@@ -674,6 +933,25 @@ class LDAPCollector:
             )
 
             operating_system = _str(attrs.get("operatingSystem"))
+            os_version = _str(attrs.get("operatingSystemVersion"))
+            os_service_pack = _str(attrs.get("operatingSystemServicePack"))
+            normalized_os_version = _normalize_os_version(os_version)
+            os_display = " ".join(
+                part for part in (
+                    operating_system,
+                    normalized_os_version,
+                    os_service_pack,
+                ) if part
+            )
+            os_inventory_key = _os_inventory_key(
+                operating_system, os_version, os_service_pack
+            )
+            revealed_dns = list(dict.fromkeys(
+                linked
+                for attribute in ("msDS-RevealedUsers", "msDS-RevealedList")
+                for raw in _raw_values(entry, attribute)
+                if (linked := _linked_dn(raw))
+            ))
             computers[sid] = {
                 "sid":                  sid,
                 "name":                 sam,
@@ -681,7 +959,12 @@ class LDAPCollector:
                 "dn":                   dn,
                 "uac":                  uac,
                 "os":                   operating_system,
+                "os_version":           os_version,
+                "os_service_pack":      os_service_pack,
+                "os_display":           os_display or "Unknown",
+                "os_inventory_key":     os_inventory_key,
                 "member_of_dns":        _as_list(attrs.get("memberOf")),
+                "primary_group_id":     _int(attrs.get("primaryGroupID"), 515),
                 "is_dc":                is_dc,
                 "computer_role":        _computer_role(is_dc, operating_system),
                 "unconstrained":        unconstrained,
@@ -694,6 +977,17 @@ class LDAPCollector:
                 "laps_expiry":          laps_exp,
                 "laps_scheme":          laps_scheme,
                 "laps_encrypted":       bool(_raw_values(entry, "msLAPS-EncryptedPassword")),
+                # RODC password replication policy and observed cache state.
+                "is_rodc":              is_rodc,
+                "rodc_revealed_user_dns": revealed_dns,
+                "rodc_reveal_on_demand_dns": [
+                    _linked_dn(value) for value in _raw_values(entry, "msDS-RevealOnDemandGroup")
+                    if _linked_dn(value)
+                ],
+                "rodc_never_reveal_dns": [
+                    _linked_dn(value) for value in _raw_values(entry, "msDS-NeverRevealGroup")
+                    if _linked_dn(value)
+                ],
             }
             self._dn_map[dn.lower()] = sid
             self._sid_name[sid]      = sam
@@ -770,6 +1064,13 @@ class LDAPCollector:
                 or _str(attrs.get("name"))
                 or target_dn.split(",", 1)[0]
             )
+            fingerprint = _dacl_fingerprint(bytes(raw_sd))
+            if fingerprint:
+                self._dacl_fingerprints[target_id] = fingerprint
+                if target_dn.casefold() == (
+                    f"CN=AdminSDHolder,CN=System,{self.base_dn}".casefold()
+                ):
+                    self._adminsdholder_dacl_fingerprint = fingerprint
 
             for ace in parse_security_descriptor(bytes(raw_sd)):
                 key = (
@@ -841,7 +1142,7 @@ class LDAPCollector:
             "(objectClass=pKIEnrollmentService)",
             [
                 "cn", "distinguishedName", "dNSHostName", "cACertificateDN",
-                "objectGUID", "nTSecurityDescriptor",
+                "objectGUID", "nTSecurityDescriptor", "certificateTemplates",
             ],
             controls=sd_ctrl,
         )
@@ -855,12 +1156,15 @@ class LDAPCollector:
                 parse_security_descriptor(bytes(raw_sd))
                 if isinstance(raw_sd, (bytes, bytearray)) else []
             )
+            published_templates = _as_list(attrs.get("certificateTemplates"))
+            ca_analysis = analyze_ca(acl_aces, published_templates)
             cas.append({
                 "id": ca_id,
                 "name": _str(attrs.get("cn")),
                 "dn": entry["dn"],
                 "dns": _str(attrs.get("dNSHostName")),
                 "acl_aces": acl_aces,
+                **ca_analysis,
             })
             self._dn_map[entry["dn"].lower()] = ca_id
             self._sid_name[ca_id] = _str(attrs.get("cn"))
@@ -878,6 +1182,10 @@ class LDAPCollector:
             controls=sd_ctrl,
         )
 
+        published = {
+            str(name).casefold()
+            for ca in cas for name in ca.get("published_templates", [])
+        }
         templates = []
         for entry in tmpl_entries:
             attrs   = entry["attributes"]
@@ -909,17 +1217,31 @@ class LDAPCollector:
             self._dn_map[entry["dn"].lower()] = template_id
             self._sid_name[template_id] = _str(attrs.get("cn"))
 
+            template_name = _str(attrs.get("cn"))
+            analysis = analyze_template(
+                name_flag=name_flag,
+                enrollment_flag=enroll_flag,
+                ekus=ekus,
+                ra_signatures=ra_sigs,
+                enroll_sids=enroll_aces,
+                acl_aces=acl_aces,
+                published=template_name.casefold() in published if published else None,
+            )
             templates.append({
-                "id":           template_id,
-                "name":         _str(attrs.get("cn")),
-                "dn":           entry["dn"],
-                "esc1":         esc1,
-                "ekus":         ekus,
-                "enroll_sids":  enroll_aces,
-                "acl_aces":     acl_aces,
+                "id": template_id,
+                "name": template_name,
+                "dn": entry["dn"],
+                "esc1": analysis["esc"]["esc1"],
+                "ekus": ekus,
+                "enroll_sids": enroll_aces,
+                "acl_aces": acl_aces,
+                "name_flags": name_flag,
+                "enrollment_flags": enroll_flag,
+                "ra_signatures": ra_sigs,
+                **analysis,
             })
 
-        return {"cas": cas, "templates": templates}
+        return {"cas": cas, "templates": templates, "summary": summarize(cas, templates)}
 
     # ── GPO links ─────────────────────────────────────────────────────────────
 
@@ -967,22 +1289,71 @@ class LDAPCollector:
     # ── Trusts ────────────────────────────────────────────────────────────────
 
     def collect_trusts(self) -> list[dict]:
-        """Enumerate domain trust relationships."""
+        """Enumerate domain trusts with direction, type and filtering posture."""
         entries = self._search(
             self.base_dn,
             "(objectClass=trustedDomain)",
-            ["trustPartner", "trustDirection", "trustType", "trustAttributes"],
+            [
+                "trustPartner", "trustDirection", "trustType", "trustAttributes",
+                "securityIdentifier", "flatName", "whenCreated", "whenChanged",
+                "msDS-SupportedEncryptionTypes",
+            ],
         )
         directions = {1: "Inbound", 2: "Outbound", 3: "Bidirectional"}
-        return [
-            {
-                "partner":    _str(e["attributes"].get("trustPartner")),
-                "direction":  directions.get(_int(e["attributes"].get("trustDirection")), "Unknown"),
-                "trust_type": _int(e["attributes"].get("trustType")),
-                "attributes": _int(e["attributes"].get("trustAttributes")),
-            }
-            for e in entries
-        ]
+        trust_types = {
+            1: "Windows downlevel",
+            2: "Windows Active Directory",
+            3: "MIT Kerberos",
+            4: "DCE (historical)",
+            5: "Microsoft Entra ID",
+        }
+        trusts = []
+        for entry in entries:
+            attrs = entry["attributes"]
+            direction_raw = _int(attrs.get("trustDirection"))
+            trust_type_raw = _int(attrs.get("trustType"))
+            flags = _int(attrs.get("trustAttributes"))
+            is_quarantined = bool(flags & 0x00000004)
+            is_forest = bool(flags & 0x00000008)
+            treat_as_external = bool(flags & 0x00000040)
+            pim_trust = bool(flags & 0x00000400)
+            sid_filtering_status = (
+                "quarantined"
+                if is_quarantined
+                else "forest-relaxed-to-external"
+                if is_forest and treat_as_external
+                else "forest-default"
+                if is_forest
+                else "not-declared-by-trust-flags"
+            )
+            trusts.append({
+                "partner": _str(attrs.get("trustPartner")),
+                "partner_sid": _sid_from_entry(entry, "securityIdentifier"),
+                "partner_netbios": _str(attrs.get("flatName")),
+                "direction": directions.get(direction_raw, "Unknown"),
+                "direction_raw": direction_raw,
+                "trust_type": trust_types.get(trust_type_raw, "Unknown"),
+                "trust_type_raw": trust_type_raw,
+                "attributes": flags,
+                "attributes_raw": flags,
+                "is_transitive": not bool(flags & 0x00000001),
+                "is_quarantined": is_quarantined,
+                "is_forest": is_forest,
+                "is_cross_org": bool(flags & 0x00000010),
+                "within_forest": bool(flags & 0x00000020),
+                "treat_as_external": treat_as_external,
+                "pim_trust": pim_trust,
+                "sid_filtering_status": sid_filtering_status,
+                "sid_filtering_enforced": is_quarantined,
+                "sid_filtering_relaxed": is_forest and treat_as_external,
+                "sid_filtering_risk": bool(is_forest and treat_as_external and not pim_trust),
+                "tgt_delegation_disabled": bool(flags & 0x00000200),
+                "tgt_delegation_enabled": bool(flags & 0x00000800),
+                "supported_encryption_types": _int(attrs.get("msDS-SupportedEncryptionTypes")),
+                "created": _datetime_attr_to_iso(attrs.get("whenCreated")),
+                "changed": _datetime_attr_to_iso(attrs.get("whenChanged")),
+            })
+        return trusts
 
     # ── Transitive membership resolution ──────────────────────────────────────
 
@@ -1024,6 +1395,60 @@ class LDAPCollector:
 
         for g in groups.values():
             g["effective_member_of"] = _all_groups(g.get("member_of", []))
+
+    def _apply_adminsdholder_drift(self, users: dict, groups: dict) -> None:
+        """Compare protected-object DACLs to the exact AdminSDHolder DACL."""
+        template = self._adminsdholder_dacl_fingerprint
+        for sid, obj in {**users, **groups}.items():
+            if obj.get("admin_count") != 1:
+                continue
+            actual = self._dacl_fingerprints.get(sid, "")
+            obj["adminsdholder_checked"] = bool(template and actual)
+            obj["adminsdholder_drift"] = bool(
+                template and actual and actual != template
+            )
+
+    @staticmethod
+    def _apply_security_posture(users: dict, groups: dict, computers: dict) -> None:
+        protected_groups = {
+            sid for sid, group in groups.items() if group.get("is_protected_users")
+        }
+        privileged_groups = {
+            sid for sid, group in groups.items()
+            if group.get("high_value") and not group.get("is_protected_users")
+        }
+        for user in users.values():
+            memberships = set(user.get("effective_member_of", []))
+            user["protected_user"] = bool(memberships & protected_groups)
+            user["sensitive_admin"] = bool(
+                user.get("admin_count") == 1 or memberships & privileged_groups
+            )
+            user["missing_protected_users"] = bool(
+                user.get("enabled", True)
+                and user["sensitive_admin"]
+                and not user["protected_user"]
+            )
+
+        for group in groups.values():
+            dangerous = sorted(
+                set(group.get("members", [])) & _DANGEROUS_PREWIN2000_MEMBERS
+            )
+            group["dangerous_members"] = dangerous
+            group["prewin2000_exposure"] = bool(
+                group.get("is_prewin2000_compatible") and dangerous
+            )
+
+        tier0_users = {
+            sid for sid, user in users.items()
+            if user.get("admin_count") == 1
+            or set(user.get("effective_member_of", [])) & privileged_groups
+        }
+        for computer in computers.values():
+            revealed = set(computer.get("rodc_revealed_users", []))
+            computer["rodc_tier0_revealed_users"] = sorted(revealed & tier0_users)
+            computer["rodc_tier0_exposure"] = bool(
+                computer.get("is_rodc") and computer["rodc_tier0_revealed_users"]
+            )
 
     # ── Orchestrator ─────────────────────────────────────────────────────────
 
@@ -1083,28 +1508,85 @@ class LDAPCollector:
         trusts = self.collect_trusts()
 
         # ── Resolve memberOf DNs → SIDs using the accumulated _dn_map ─────────
+        def _resolve_reference(value) -> str:
+            dn = _linked_dn(value)
+            resolved = self._dn_map.get(dn.lower()) if dn else ""
+            if resolved:
+                return resolved
+            sid = _sid_from_dn(dn or value)
+            if sid:
+                self._sid_name.setdefault(sid, WELL_KNOWN_SIDS.get(sid, sid))
+            return sid
+
         for obj in list(users.values()) + list(computers.values()):
-            obj["member_of"] = [
-                self._dn_map[dn.lower()]
-                for dn in obj.get("member_of_dns", [])
-                if dn.lower() in self._dn_map
+            memberships = [
+                sid for value in obj.get("member_of_dns", [])
+                if (sid := _resolve_reference(value))
             ]
+            primary_group_id = obj.get("primary_group_id")
+            primary_group_sid = (
+                f"{self.domain_sid}-{primary_group_id}"
+                if self.domain_sid and primary_group_id else ""
+            )
+            if primary_group_sid and primary_group_sid in groups:
+                memberships.append(primary_group_sid)
+            obj["primary_group_sid"] = primary_group_sid or None
+            obj["member_of"] = list(dict.fromkeys(memberships))
 
         for grp in groups.values():
             grp["members"] = [
-                self._dn_map[dn.lower()]
-                for dn in grp.get("member_dns", [])
-                if dn.lower() in self._dn_map
+                sid for value in grp.get("member_dns", [])
+                if (sid := _resolve_reference(value))
             ]
             grp["member_of"] = [
-                self._dn_map[dn.lower()]
-                for dn in grp.get("member_of_dns", [])
-                if dn.lower() in self._dn_map
+                sid for value in grp.get("member_of_dns", [])
+                if (sid := _resolve_reference(value))
             ]
+
+        for computer in computers.values():
+            for source_key, target_key in (
+                ("rodc_revealed_user_dns", "rodc_revealed_users"),
+                ("rodc_reveal_on_demand_dns", "rodc_reveal_on_demand"),
+                ("rodc_never_reveal_dns", "rodc_never_reveal"),
+            ):
+                computer[target_key] = list(dict.fromkeys(
+                    sid for value in computer.get(source_key, [])
+                    if (sid := _resolve_reference(value))
+                ))
 
         # ── Compute transitive group membership (BFS) ─────────────────────────
         _step("Resolving transitive group membership")
         self._resolve_transitive_membership(users, groups, computers)
+
+        # These checks depend on resolved membership and, for AdminSDHolder,
+        # the DACL fingerprints collected above.
+        self._apply_adminsdholder_drift(users, groups)
+        self._apply_security_posture(users, groups, computers)
+
+        domain["protected_users_group_present"] = any(
+            group.get("is_protected_users") for group in groups.values()
+        )
+        domain["prewin2000_exposure"] = any(
+            group.get("prewin2000_exposure") for group in groups.values()
+        )
+        domain["adminsdholder_drift_count"] = sum(
+            1 for obj in [*users.values(), *groups.values()]
+            if obj.get("adminsdholder_drift")
+        )
+        domain["rodc_count"] = sum(1 for item in computers.values() if item.get("is_rodc"))
+        domain["rodc_tier0_exposure_count"] = sum(
+            1 for item in computers.values() if item.get("rodc_tier0_exposure")
+        )
+        domain["operating_system_inventory"] = {
+            name: sum(
+                1 for item in computers.values()
+                if (item.get("os_inventory_key") or item.get("os_display") or "Unknown") == name
+            )
+            for name in sorted({
+                item.get("os_inventory_key") or item.get("os_display") or "Unknown"
+                for item in computers.values()
+            })
+        }
 
         all_sid_objects = [domain] + list(users.values()) + list(groups.values()) + list(computers.values())
         canonical_sids = sum(
@@ -1115,6 +1597,7 @@ class LDAPCollector:
             role: sum(1 for item in computers.values() if item.get("computer_role") == role)
             for role in ("workstation", "server", "domain_controller")
         }
+        system_counts["rodc"] = domain["rodc_count"]
 
         self._telemetry["completed_at"] = datetime.now(timezone.utc).isoformat()
         self._telemetry["duration_ms"] = round(
@@ -1148,7 +1631,8 @@ class LDAPCollector:
                     "includes": [
                         "object properties", "group memberships", "trusts",
                         "OU/container hierarchy", "GPO links",
-                        "AD object permissions", "AD CS",
+                        "AD object permissions", "AD CS", "operating system inventory",
+                        "RODC password replication policy", "authentication policies",
                     ],
                 },
                 "host": {

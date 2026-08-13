@@ -98,6 +98,7 @@ WELL_KNOWN_SIDS: dict[str, str] = {
     "S-1-5-14":  "Remote Interactive Logon",
     "S-1-5-15":  "This Organization",
     "S-1-5-17":  "IIS_USRS",
+    "S-1-5-32-554": "Pre-Windows 2000 Compatible Access",
     "S-1-5-18":  "SYSTEM",
     "S-1-5-19":  "NT Authority\\Local Service",
     "S-1-5-20":  "NT Authority\\Network Service",

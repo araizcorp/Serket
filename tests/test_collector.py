@@ -148,6 +148,33 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(_int([], 10), 10)
         self.assertEqual(_int(["invalid"], 7), 7)
 
+    def test_domain_policy_preserves_legacy_keys_and_minute_precision(self):
+        collector = self.collector()
+        collector._search = lambda *args, **kwargs: [{
+            "dn": collector.base_dn,
+            "attributes": {
+                "objectSid": "S-1-5-21-1-2-3",
+                "minPwdLength": "14",
+                "minPwdAge": "-864000000000",
+                "maxPwdAge": "-36288000000000",
+                "pwdHistoryLength": "24",
+                "lockoutThreshold": "5",
+                "lockoutDuration": "-18000000000",
+                "lockoutObservationWindow": "-18000000000",
+                "pwdProperties": "17",
+                "ms-DS-MachineAccountQuota": "10",
+            },
+        }]
+
+        domain = collector.get_domain_info()
+
+        self.assertEqual(domain["min_pwd_length"], 14)
+        self.assertEqual(domain["lockout_threshold"], 5)
+        self.assertEqual(domain["password_policy"]["max_age_days"], 42)
+        self.assertTrue(domain["password_policy"]["complexity_required"])
+        self.assertTrue(domain["password_policy"]["store_cleartext"])
+        self.assertEqual(domain["lockout_policy"]["duration_minutes"], 30)
+
     def test_users_accept_list_wrapped_user_account_control(self):
         collector = self.collector()
         collector._search = lambda *args, **kwargs: [
@@ -169,6 +196,33 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(user["uac"], UAC_DONT_REQ_PREAUTH)
         self.assertEqual(user["admin_count"], 1)
         self.assertTrue(user["asreproastable"])
+
+    def test_users_expose_password_and_activity_posture(self):
+        collector = self.collector()
+        old_filetime = 132537600000000000  # 2020-12-30 UTC
+        collector._search = lambda *args, **kwargs: [{
+            "dn": "CN=alice,CN=Users,DC=lab,DC=example",
+            "attributes": {
+                "samAccountName": "alice",
+                "objectSid": "S-1-5-21-1-2-3-1100",
+                "userAccountControl": 0x00010020,
+                "adminCount": 0,
+                "memberOf": [],
+                "servicePrincipalName": [],
+                "pwdLastSet": old_filetime,
+                "lastLogonTimestamp": old_filetime,
+                "accountExpires": 0x7FFFFFFFFFFFFFFF,
+            },
+        }]
+
+        user = collector.collect_users()["S-1-5-21-1-2-3-1100"]
+
+        self.assertTrue(user["pwd_never_expires"])
+        self.assertTrue(user["pwd_not_required"])
+        self.assertGreater(user["pwd_age_days"], 730)
+        self.assertTrue(user["stale"])
+        self.assertIsNone(user["account_expires"])
+        self.assertTrue(user["pwd_last_set"].endswith("+00:00"))
 
     def test_raw_sid_wins_over_corrupt_decoded_attribute(self):
         collector = self.collector()
