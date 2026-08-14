@@ -681,7 +681,7 @@ function renderPath(path) {
       '<span class="node-icon">' + typeIcon(full.type) + '</span>' +
       '<span class="node-kind">' + esc(full.type || "Objeto") + '</span>' +
       '<span class="node-label">' + esc(full.name || full.id || "Objeto") + '</span>' +
-      '<span class="node-flags">' + nodeFlags(full).map(flag => '<span class="node-flag' + (/^(OLD|NO-PWD|STALE|REV|SHADOW|SD-DRIFT|NO-PROTECTED|DES|LOCKED|RODC-T0|PREWIN-OPEN|POLICY FAIL|ACL_ABUSE|TIER0_PATH|WRITE_DACL_TIER0|KERBEROASTABLE|ASREP_ROAST|UNCONSTRAINED_DELEGATION|CONSTRAINED_DELEGATION|PROTOCOL_TRANSITION|MAQ_ABUSE_OBSERVED|ESC[1-4]_CANDIDATE)/.test(flag) ? ' critical' : '') + '">' + esc(flag) + '</span>').join("") + '</span>' +
+      '<span class="node-flags">' + nodeFlags(full).map(flag => '<span class="node-flag' + (/^(OLD|NO-PWD|STALE|REV|SHADOW|SD-DRIFT|NO-PROTECTED|DES|LOCKED|RODC-T0|PREWIN-OPEN|POLICY FAIL|ACL_ABUSE|TIER0_PATH|WRITE_DACL_TIER0|KERBEROASTABLE|ASREP_ROAST|UNCONSTRAINED_DELEGATION|CONSTRAINED_DELEGATION|PROTOCOL_TRANSITION|MAQ_ABUSE_OBSERVED|GPO_ABUSE|ESC[1-4]_CANDIDATE)/.test(flag) ? ' critical' : '') + '">' + esc(flag) + '</span>').join("") + '</span>' +
     '</button>';
     if (index < steps.length) {
       const step = steps[index];

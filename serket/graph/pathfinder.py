@@ -660,5 +660,6 @@ class Pathfinder:
             "snapshot_id": inference["snapshot_id"],
             "findings": inference["findings"],
             "risk_summary": inference["risk_summary"],
+            "posture": inference["posture"],
             "sensitivity": sensitivity,
         }

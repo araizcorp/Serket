@@ -153,6 +153,33 @@ class FindingEngineTests(unittest.TestCase):
             3,
         )
 
+    def test_sysvol_issue_emits_confirmed_gpo_abuse_and_posture(self):
+        ag = ADGraph()
+        ag._add_node(
+            "gpo", "Weak Domain Policy", "GPO", guid="gpo-guid",
+            sysvol={
+                "coverage": "sysvol_offline",
+                "issues": [{
+                    "kind": "ntlm_compatibility", "severity": "high",
+                    "description": "LmCompatibilityLevel permits legacy NTLM responses",
+                    "configured_value": 1,
+                }],
+            },
+        )
+        result = generate_findings(
+            ad_data={
+                "domain": {"name": "lab.example"},
+                "telemetry": {"started_at": "2026-08-14T09:00:00+00:00"},
+            },
+            ag=ag,
+        )
+        finding = next(item for item in result["findings"] if item["badge"] == "GPO_ABUSE")
+
+        self.assertEqual(finding["certainty"], "direct")
+        self.assertEqual(finding["coverage"], "sysvol_offline")
+        self.assertEqual(result["posture"]["global_score"], result["risk_summary"]["global_score"])
+        self.assertEqual(result["posture"]["schema"], "serket-posture/v1")
+
 
 if __name__ == "__main__":
     unittest.main()

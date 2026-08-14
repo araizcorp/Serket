@@ -86,6 +86,7 @@ def save_results(
         "trusts": ad_data.get("trusts", []),
         "permissions": ad_data.get("acls", []),
         "adcs": ad_data.get("adcs", {}),
+        "sysvol": ad_data.get("sysvol", {}),
         "summary": {
             "stats": graph_stats,
             "sid_name": ad_data.get("sid_name", {}),
@@ -98,6 +99,7 @@ def save_results(
             "paths": analysis.get("paths", []),
             "findings": analysis.get("findings", []),
             "risk_summary": analysis.get("risk_summary", {}),
+            "posture": analysis.get("posture", {}),
             "snapshot_id": analysis.get("snapshot_id", ""),
             "sensitivity": analysis.get("sensitivity", {}),
         },

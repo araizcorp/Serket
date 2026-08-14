@@ -52,6 +52,19 @@ Configured `MachineAccountQuota` remains separate from observed activity.
 at least three recent computer objects attributed to the same non-privileged
 creator inside the 30-day analysis window.
 
+With `--sysvol-root`, Serket reads only the explicitly supplied local or
+mounted copy. `Registry.pol` is parsed according to MS-GPREG; startup/logon
+scripts are inventoried by path, size and SHA-256 without storing their
+contents; and Local Users and Groups preferences are parsed without retaining
+`cpassword`. Confirmed dangerous settings emit `GPO_ABUSE` with
+`coverage: sysvol_offline`. Without that option, SYSVOL posture remains
+`not_assessed`.
+
+The analysis component also contains `posture` using `serket-posture/v1`:
+`global_score`, `category_scores`, finding count, risk model and snapshot ID.
+Ledger can compare these integrity-covered values and the persisted findings without
+recalculating Serket's inference.
+
 Older schema-1 packages may omit these fields. Consumers must interpret their
 absence as `not_assessed`, never as an empty or healthy posture.
 

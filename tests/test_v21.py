@@ -35,6 +35,7 @@ class V21Tests(unittest.TestCase):
                 "surface": {}, "paths": [], "snapshot_id": "snapshot-test",
                 "findings": [{"id": "finding://serket/v1/snapshot-test/1", "object_id": "S-1-5-21-1-2-3-1100"}],
                 "risk_summary": {"risk_model": "serket-risk/v1", "global_score": 25},
+                "posture": {"schema": "serket-posture/v1", "global_score": 25, "category_scores": {"acl": 25}},
             }
             bundle = Path(save_results(self.data(), {"nodes": 1}, analysis, temp, ag))
             package = bundle.with_suffix(".serket")
@@ -45,6 +46,7 @@ class V21Tests(unittest.TestCase):
             self.assertFalse(loaded["interchange"]["sensitive_values_included"])
             self.assertEqual(loaded["snapshot_id"], "snapshot-test")
             self.assertEqual(loaded["risk_summary"]["global_score"], 25)
+            self.assertEqual(loaded["posture"]["category_scores"], {"acl": 25})
             self.assertEqual(loaded["findings"][0]["object_id"], "S-1-5-21-1-2-3-1100")
             with zipfile.ZipFile(package) as archive:
                 self.assertIn("interchange.json", archive.namelist())

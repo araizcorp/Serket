@@ -250,6 +250,47 @@ def generate_findings(*, ad_data: dict, ag: ADGraph,
                     created_at=created_at,
                     remediation=_remediation("GPO_TIER0_LINK"),
                 ))
+            sysvol = node.get("sysvol") or {}
+            sysvol_issues = list(sysvol.get("issues", [])) if isinstance(sysvol, dict) else []
+            if sysvol_issues:
+                severity_order = {"critical": 4, "high": 3, "medium": 2, "low": 1}
+                severity = max(
+                    (str(issue.get("severity", "medium")) for issue in sysvol_issues),
+                    key=lambda value: severity_order.get(value, 0),
+                )
+                node_paths = node_paths if node_paths is not None else paths_for(node_id)
+                components = _risk(severity, "direct", node.get("sensitivity", "none"))
+                findings.append(Finding.create(
+                    snapshot_id=snapshot_id,
+                    object_id=str(node_id),
+                    stable_object_id=node.get("guid") or str(node_id),
+                    object_type="gpo",
+                    technique="GPO_ABUSE",
+                    index=stable_token(node_id, *(
+                        str(issue.get("kind", "")) for issue in sysvol_issues
+                    )),
+                    badge="GPO_ABUSE",
+                    category="gpo",
+                    severity=severity,
+                    confidence="high",
+                    certainty="direct",
+                    coverage="sysvol_offline",
+                    evidence=[Evidence(
+                        type="sysvol_setting",
+                        source=str(issue.get("kind", "SYSVOL")),
+                        value=issue,
+                        interpretation=str(issue.get("description", "Dangerous GPO content confirmed")),
+                    ) for issue in sysvol_issues],
+                    paths=node_paths or [],
+                    tier0_reachable=bool(node_paths),
+                    tier0_distance=min((len(path.edges) for path in node_paths), default=None),
+                    mitre_technique="T1484.001",
+                    mitre_tactic=TACTICS["gpo"],
+                    risk_score=components.total,
+                    risk_components=components,
+                    created_at=created_at,
+                    remediation=_remediation("GPO_ABUSE"),
+                ))
 
         if node.get("type") == "CertTemplate":
             for candidate in node.get("adcs_findings", []):
@@ -446,14 +487,24 @@ def generate_findings(*, ad_data: dict, ag: ADGraph,
     category_scores = Counter()
     for item in payload:
         category_scores[item["category"]] += item["risk_score"]
+    risk_summary = {
+        "risk_model": RISK_MODEL,
+        "global_score": sum(item["risk_score"] for item in payload),
+        "max_finding_score": max((item["risk_score"] for item in payload), default=0),
+        "findings_count": dict(sorted(severity_counts.items())),
+        "category_scores": dict(sorted(category_scores.items())),
+    }
+    posture = {
+        "schema": "serket-posture/v1",
+        "risk_model": RISK_MODEL,
+        "global_score": risk_summary["global_score"],
+        "category_scores": risk_summary["category_scores"],
+        "findings_count": len(payload),
+        "snapshot_id": snapshot_id,
+    }
     return {
         "snapshot_id": snapshot_id,
         "findings": sorted(payload, key=lambda item: (-item["risk_score"], item["id"])),
-        "risk_summary": {
-            "risk_model": RISK_MODEL,
-            "global_score": sum(item["risk_score"] for item in payload),
-            "max_finding_score": max((item["risk_score"] for item in payload), default=0),
-            "findings_count": dict(sorted(severity_counts.items())),
-            "category_scores": dict(sorted(category_scores.items())),
-        },
+        "risk_summary": risk_summary,
+        "posture": posture,
     }

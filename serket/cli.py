@@ -25,6 +25,7 @@ from rich.prompt  import Prompt
 from rich.status  import Status
 
 from serket.collector.ldap_collector import LDAPCollector
+from serket.collector.sysvol import collect_sysvol
 from serket.discovery                  import (
     DomainControllerDiscoveryError,
     discover_domain_controller,
@@ -88,6 +89,10 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Skip ACL collection (faster, fewer edges)")
     opt.add_argument("--no-adcs",     action="store_true",
                      help="Skip ADCS template enumeration")
+    opt.add_argument(
+        "--sysvol-root", metavar="PATH",
+        help="Parse an explicitly supplied local/mounted SYSVOL copy (no share discovery)",
+    )
     opt.add_argument("-o", "--output", default=DEFAULT_OUTPUT, metavar="PATH",
                      help=f"Output directory, or FILE.serket for enrich (default: {DEFAULT_OUTPUT})")
     opt.add_argument("--load", metavar="PATH",
@@ -156,6 +161,16 @@ def _run_collect(args) -> None:
         include_acls=not args.no_acls,
         include_adcs=not args.no_adcs,
     )
+    if args.sysvol_root:
+        if not args.quiet:
+            console.print("  [dim white]Parsing explicit SYSVOL evidence[/]")
+        sysvol = collect_sysvol(args.sysvol_root, ad_data.get("gpos", []))
+        ad_data["sysvol"] = sysvol
+        ad_data.setdefault("coverage", {})["sysvol"] = {
+            "status": sysvol["status"],
+            "mode": "explicit_offline",
+            "files_parsed": sysvol["files_parsed"],
+        }
 
     if not args.quiet:
         console.print("\n[bold white]Building attack graph...[/]")

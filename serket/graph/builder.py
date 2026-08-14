@@ -333,6 +333,7 @@ class ADGraph:
                 machine_extensions=gpo.get("machine_extensions", []),
                 user_extensions=gpo.get("user_extensions", []),
                 gpo_links=gpo.get("links", []), coverage=gpo.get("coverage", "ldap_only"),
+                sysvol=gpo.get("sysvol"),
             )
 
     def _add_domain_policy_edges(self, ad_data: dict):

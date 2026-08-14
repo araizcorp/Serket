@@ -28,6 +28,7 @@ Serket is not presented as “undetectable.” Its controlled collection profile
 | Capability | Status | Notes |
 |---|---:|---|
 | LDAP/DC-only collection | Available | Users, groups, systems, domain policy, OU/container hierarchy, GPOs, trusts, owner+DACL permissions and AD CS data |
+| Optional offline SYSVOL | Available | Explicit local/mounted copy only: Registry.pol, script inventory and Local Users and Groups preferences |
 | System classification | Available | Workstations, member servers and domain controllers are modeled and counted separately |
 | Authentication | Available | Password prompt, NTLM hash, Kerberos cache and optional LDAPS |
 | Relationship graph | Available | Directed multigraph; parallel permissions are preserved instead of overwriting one another |
@@ -177,6 +178,20 @@ serket \
 ```
 
 Only use credential material that is explicitly covered by the authorization for the assessment. Prefer LDAPS when the environment supports it.
+
+### Optional offline SYSVOL evidence
+
+Supply an explicitly authorized local or mounted SYSVOL copy to confirm GPO
+content without changing the default LDAP-only boundary:
+
+```bash
+serket -d corp.local -u auditor -k --sysvol-root /evidence/SYSVOL
+```
+
+Serket does not discover or mount a share for this option. Registry policy
+parsing is bounded, script contents are represented only by hashes, and GPP
+`cpassword` values are never retained. Without `--sysvol-root`, SYSVOL remains
+`not_assessed` rather than being inferred safe.
 
 ### Collection controls
 
