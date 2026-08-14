@@ -13,7 +13,9 @@ from serket.collector.acl_parser import (
 )
 from serket.collector.ldap_collector import (
     LDAPCollector,
+    UAC_ACCOUNTDISABLE,
     UAC_DONT_REQ_PREAUTH,
+    UAC_TRUSTED_TO_AUTH_FOR_DELEGATION,
     _int,
 )
 
@@ -201,6 +203,84 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(user["uac"], UAC_DONT_REQ_PREAUTH)
         self.assertEqual(user["admin_count"], 1)
         self.assertTrue(user["asreproastable"])
+
+    def test_users_exclude_managed_service_accounts_and_refine_kerberos(self):
+        collector = self.collector()
+        captured = {}
+
+        def fake_search(base, search_filter, attributes, *args, **kwargs):
+            captured["filter"] = search_filter
+            return [
+                {
+                    "dn": "CN=disabled,CN=Users,DC=lab,DC=example",
+                    "attributes": {
+                        "samAccountName": "disabled", "objectSid": "S-1-5-21-1-2-3-1101",
+                        "userAccountControl": UAC_ACCOUNTDISABLE | UAC_DONT_REQ_PREAUTH,
+                        "servicePrincipalName": [], "memberOf": [],
+                    },
+                },
+                {
+                    "dn": "CN=svc1,CN=Users,DC=lab,DC=example",
+                    "attributes": {
+                        "samAccountName": "svc1", "objectSid": "S-1-5-21-1-2-3-1102",
+                        "userAccountControl": 0,
+                        "servicePrincipalName": [], "memberOf": [],
+                        "msDS-AllowedToDelegateTo": ["HTTP/app.lab.example"],
+                    },
+                },
+                {
+                    "dn": "CN=svc2,CN=Users,DC=lab,DC=example",
+                    "attributes": {
+                        "samAccountName": "svc2", "objectSid": "S-1-5-21-1-2-3-1103",
+                        "userAccountControl": UAC_TRUSTED_TO_AUTH_FOR_DELEGATION,
+                        "servicePrincipalName": [], "memberOf": [],
+                        "msDS-AllowedToDelegateTo": ["CIFS/files.lab.example"],
+                    },
+                },
+            ]
+
+        collector._search = fake_search
+        users = collector.collect_users()
+
+        self.assertIn("(!(objectClass=msDS-ManagedServiceAccount))", captured["filter"])
+        self.assertIn("(!(objectClass=msDS-GroupManagedServiceAccount))", captured["filter"])
+        self.assertFalse(users["S-1-5-21-1-2-3-1101"]["asreproastable"])
+        self.assertTrue(users["S-1-5-21-1-2-3-1102"]["constrained_kerberos_only"])
+        self.assertEqual(users["S-1-5-21-1-2-3-1102"]["delegation_mode"], "constrained_kerberos_only")
+        self.assertTrue(users["S-1-5-21-1-2-3-1103"]["protocol_transition"])
+        self.assertEqual(
+            users["S-1-5-21-1-2-3-1103"]["delegation_mode"],
+            "constrained_protocol_transition",
+        )
+
+    def test_maq_activity_requires_recent_non_admin_volume(self):
+        collector = self.collector()
+        creator = "S-1-5-21-1-2-3-1100"
+        privileged = "S-1-5-21-1-2-3-500"
+        now = __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        ).isoformat()
+        domain = {"maq": 10}
+        computers = {
+            f"computer-{index}": {"creator_sid": creator, "created": now}
+            for index in range(3)
+        }
+        computers["privileged-computer"] = {
+            "creator_sid": privileged, "created": now,
+        }
+
+        collector._apply_maq_activity(
+            domain,
+            {creator: {"sensitive_admin": False}, privileged: {"sensitive_admin": True}},
+            {},
+            computers,
+        )
+
+        self.assertEqual(domain["maq_activity"]["status"], "observed")
+        self.assertEqual(domain["maq_activity"]["suspected_computers"], 3)
+        self.assertTrue(computers["computer-0"]["maq_abuse_suspected"])
+        self.assertEqual(computers["computer-0"]["maq_creator_volume"], 3)
+        self.assertFalse(computers["privileged-computer"]["maq_created_by_non_admin"])
 
     def test_users_expose_password_and_activity_posture(self):
         collector = self.collector()

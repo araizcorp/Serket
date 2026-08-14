@@ -151,6 +151,31 @@ class GraphCoverageTests(unittest.TestCase):
         self.assertEqual(edge["link_order"], 1)
         self.assertTrue(edge["target_blocks_inheritance"])
 
+    def test_protocol_transition_and_observed_maq_have_distinct_edges(self):
+        data = self.data()
+        domain = data["domain"]["sid"]
+        user = f"{domain}-1100"
+        computer = f"{domain}-1002"
+        data["users"][user].update({
+            "constrained": True,
+            "constrained_kerberos_only": False,
+            "protocol_transition": True,
+            "delegation_targets": ["HTTP/app.lab.example"],
+        })
+        data["computers"][computer].update({
+            "creator_sid": user,
+            "created": "2026-08-13T09:00:00+00:00",
+            "maq_abuse_suspected": True,
+            "maq_creator_volume": 3,
+        })
+        data["domain"]["maq_activity"] = {"window_days": 30}
+
+        graph = ADGraph.build_from_data(data)
+
+        self.assertTrue(graph.G.has_edge(user, user, key="ProtocolTransition"))
+        self.assertFalse(graph.G.has_edge(user, user, key="ConstrainedDelegation"))
+        self.assertTrue(graph.G.has_edge(user, computer, key="MAQAbuseObserved"))
+
 
 if __name__ == "__main__":
     unittest.main()

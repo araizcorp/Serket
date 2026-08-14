@@ -71,6 +71,13 @@ class V21Tests(unittest.TestCase):
             published=True,
         )
         self.assertEqual({item["id"] for item in result["findings"]}, {"ESC1", "ESC2", "ESC3", "ESC4"})
+        self.assertEqual({item["confidence"] for item in result["findings"]}, {"medium"})
+        unpublished = analyze_template(
+            name_flag=1, enrollment_flag=0,
+            ekus=["1.3.6.1.5.5.7.3.2"], ra_signatures=0,
+            enroll_sids=[sid], acl_aces=[], published=False,
+        )
+        self.assertEqual(unpublished["findings"][0]["confidence"], "low")
         ca = analyze_ca([], ["User"])
         unknown = {item["id"] for item in ca["findings"] if item["status"] == "not_assessed"}
         self.assertEqual(unknown, {"ESC6", "ESC7", "ESC8"})

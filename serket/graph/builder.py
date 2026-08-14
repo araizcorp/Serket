@@ -22,6 +22,7 @@ EDGE_OPSEC: dict[str, tuple[int, str]] = {
     "ASREPRoastable":           (2,  "low"),
     "UnconstrainedDelegation":  (2,  "low"),
     "ConstrainedDelegation":    (2,  "low"),
+    "ProtocolTransition":       (2,  "low"),
     "RBCD":                     (2,  "low"),
     "HasSIDHistory":            (2,  "low"),
     "DCSync":                   (3,  "low"),
@@ -33,6 +34,7 @@ EDGE_OPSEC: dict[str, tuple[int, str]] = {
     "ADCS_ESC5":                (4,  "medium"),
     "GPOLink":                  (2,  "low"),
     "MAQAbuse":                 (2,  "low"),
+    "MAQAbuseObserved":         (2,  "low"),
     "DNSAdmin":                 (2,  "low"),
     "ExchangePermissions":      (2,  "low"),
     "RODCCachedCredential":     (2,  "low"),
@@ -71,6 +73,7 @@ MITRE_MAP = {
     "ASREPRoastable":           {"id": "T1558.004", "name": "AS-REP Roasting"},
     "UnconstrainedDelegation":  {"id": "T1558.001", "name": "Unconstrained Delegation Abuse"},
     "ConstrainedDelegation":    {"id": "T1558.002", "name": "S4U2Proxy Abuse"},
+    "ProtocolTransition":       {"id": "T1558.002", "name": "S4U2Proxy Abuse"},
     "RBCD":                     {"id": "T1558",     "name": "Steal or Forge Kerberos Tickets"},
     "DCSync":                   {"id": "T1003.006", "name": "OS Credential Dumping: DCSync"},
     "ADCS_ESC1":                {"id": "T1649",     "name": "Steal or Forge Authentication Certificates"},
@@ -91,6 +94,7 @@ MITRE_MAP = {
     "HasSIDHistory":            {"id": "T1134.005", "name": "Access Token Manipulation: SID-History Injection"},
     "HasPasswordInDescription": {"id": "T1552.001", "name": "Unsecured Credentials: Credentials In Files"},
     "MAQAbuse":                 {"id": "T1136.002", "name": "Create Account: Domain Account"},
+    "MAQAbuseObserved":         {"id": "T1136.002", "name": "Create Account: Domain Account"},
     "DNSAdmin":                 {"id": "T1574.002", "name": "Hijack Execution Flow: DLL Side-Loading"},
     "ExchangePermissions":      {"id": "T1222.001", "name": "Windows File and Directory Permissions Modification"},
     "RODCCachedCredential":     {"id": "T1003", "name": "OS Credential Dumping"},
@@ -157,6 +161,7 @@ class ADGraph:
         ag._add_dc_control_edges(ad_data)
         ag._add_user_attack_edges(ad_data)
         ag._add_computer_attack_edges(ad_data)
+        ag._add_maq_activity_edges(ad_data)
         ag._add_acl_edges(ad_data)
         ag._add_adcs_edges(ad_data)
         ag._add_sid_history_edges(ad_data)
@@ -209,6 +214,12 @@ class ADGraph:
                            asreproastable=u["asreproastable"],
                            unconstrained=u["unconstrained"],
                            constrained=u.get("constrained", False),
+                           constrained_kerberos_only=u.get(
+                               "constrained_kerberos_only",
+                               u.get("constrained", False) and not u.get("protocol_transition", False),
+                           ),
+                           protocol_transition=u.get("protocol_transition", False),
+                           delegation_mode=u.get("delegation_mode", "none"),
                            delegation_targets=u.get("delegation_targets", []),
                            rbcd_trustees=u.get("rbcd_trustees", []),
                            spns=u["spns"],
@@ -278,6 +289,12 @@ class ADGraph:
                            is_dc=c["is_dc"],
                            unconstrained=c["unconstrained"],
                            constrained=c["constrained"],
+                           constrained_kerberos_only=c.get(
+                               "constrained_kerberos_only",
+                               c.get("constrained", False) and not c.get("protocol_transition", False),
+                           ),
+                           protocol_transition=c.get("protocol_transition", False),
+                           delegation_mode=c.get("delegation_mode", "none"),
                            delegation_targets=c.get("delegation_targets", []),
                            rbcd_trustees=c.get("rbcd_trustees", []),
                            laps_readable=c.get("laps_readable", False),
@@ -286,7 +303,13 @@ class ADGraph:
                            is_rodc=c.get("is_rodc", False),
                            rodc_revealed_users=c.get("rodc_revealed_users", []),
                            rodc_tier0_revealed_users=c.get("rodc_tier0_revealed_users", []),
-                           rodc_tier0_exposure=c.get("rodc_tier0_exposure", False))
+                           rodc_tier0_exposure=c.get("rodc_tier0_exposure", False),
+                           creator_sid=c.get("creator_sid", ""),
+                           created=c.get("created"),
+                           created_age_days=c.get("created_age_days"),
+                           maq_created_by_non_admin=c.get("maq_created_by_non_admin", False),
+                           maq_abuse_suspected=c.get("maq_abuse_suspected", False),
+                           maq_creator_volume=c.get("maq_creator_volume", 0))
 
         for object_id, obj in ad_data.get("directory_objects", {}).items():
             self._add_node(
@@ -529,9 +552,17 @@ class ADGraph:
                           detail="Ticket capture → DCSync or admin impersonation")
 
             # Constrained delegation on users (S4U2Proxy via msDS-AllowedToDelegateTo)
-            if u.get("constrained"):
+            kerberos_only = u.get(
+                "constrained_kerberos_only",
+                u.get("constrained", False) and not u.get("protocol_transition", False),
+            )
+            if kerberos_only or u.get("protocol_transition"):
+                edge_type = (
+                    "ProtocolTransition" if u.get("protocol_transition")
+                    else "ConstrainedDelegation"
+                )
                 for target_spn in u.get("delegation_targets", []):
-                    _add_edge(self.G, sid, sid, "ConstrainedDelegation",
+                    _add_edge(self.G, sid, sid, edge_type,
                               detail=f"S4U2Proxy to: {target_spn}")
 
             # RBCD: principals that can act through this user's resource-based delegation descriptor
@@ -554,8 +585,12 @@ class ADGraph:
                     _add_edge(self.G, sid, domain_sid, "UnconstrainedDelegation",
                               detail="Capture TGT of any user authenticating to this host")
 
+            edge_type = (
+                "ProtocolTransition" if c.get("protocol_transition")
+                else "ConstrainedDelegation"
+            )
             for target_spn in c.get("delegation_targets", []):
-                _add_edge(self.G, sid, sid, "ConstrainedDelegation",
+                _add_edge(self.G, sid, sid, edge_type,
                           detail=f"Delegate to: {target_spn}")
 
             for trustee_sid in c.get("rbcd_trustees", []):
@@ -577,6 +612,34 @@ class ADGraph:
                             traversable=True,
                             tier0_exposure=revealed_sid in tier0_revealed,
                         )
+
+    def _add_maq_activity_edges(self, ad_data: dict):
+        """Represent LDAP-observed, thresholded non-admin machine creation."""
+        activity = ad_data.get("domain", {}).get("maq_activity", {})
+        for computer_sid, computer in ad_data.get("computers", {}).items():
+            if not computer.get("maq_abuse_suspected") or computer_sid not in self.G:
+                continue
+            creator_sid = computer.get("creator_sid", "")
+            if not creator_sid:
+                continue
+            if creator_sid not in self.G:
+                self._add_node(
+                    creator_sid,
+                    self.sid_name.get(creator_sid, creator_sid),
+                    "Principal",
+                    external=True,
+                )
+            _add_edge(
+                self.G, creator_sid, computer_sid, "MAQAbuseObserved",
+                detail=(
+                    f"Creator produced {computer.get('maq_creator_volume', 0)} computer "
+                    f"accounts within {activity.get('window_days', 30)} days"
+                ),
+                traversable=True,
+                created=computer.get("created"),
+                creator_volume=computer.get("maq_creator_volume", 0),
+                window_days=activity.get("window_days", 30),
+            )
 
     # ── ACL edges ────────────────────────────────────────────────────────────
 
@@ -631,10 +694,14 @@ class ADGraph:
 
         for tmpl in adcs.get("templates", []):
             tmpl_id = tmpl.get("id") or f"TMPL:{tmpl['name']}"
+            esc_flags = tmpl.get("esc", {})
             self._add_node(
                 tmpl_id, tmpl["name"], "CertTemplate",
                 high_value=bool(tmpl.get("esc1")),
                 dn=tmpl["dn"], esc1=bool(tmpl.get("esc1")),
+                esc2=bool(esc_flags.get("esc2")), esc3=bool(esc_flags.get("esc3")),
+                esc4=bool(esc_flags.get("esc4")), published=tmpl.get("published"),
+                adcs_findings=tmpl.get("findings", []), coverage="ldap_only",
             )
             self._add_embedded_acl_edges(
                 tmpl_id, "CertTemplate", tmpl.get("acl_aces", [])
@@ -657,6 +724,7 @@ class ADGraph:
                         detail=f"{esc} candidate on template {tmpl['name']}",
                         traversable=esc == "ESC1",
                         confidence=finding.get("confidence", "unknown"),
+                        published=tmpl.get("published"),
                     )
 
     def _add_embedded_acl_edges(self, target_id: str, target_type: str, aces: list[dict]):

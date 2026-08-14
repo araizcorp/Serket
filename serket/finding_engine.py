@@ -25,9 +25,9 @@ LEGACY_RULES = (
     ("kerberoastable", "KERBEROASTABLE", "kerberos", "medium", "Kerberoastable"),
     ("asreproastable", "ASREP_ROAST", "kerberos", "high", "ASREPRoastable"),
     ("unconstrained", "UNCONSTRAINED_DELEGATION", "kerberos", "high", "UnconstrainedDelegation"),
-    ("constrained", "CONSTRAINED_DELEGATION", "kerberos", "medium", "ConstrainedDelegation"),
+    ("constrained_kerberos_only", "CONSTRAINED_DELEGATION", "kerberos", "medium", "ConstrainedDelegation"),
+    ("protocol_transition", "PROTOCOL_TRANSITION", "kerberos", "high", "ProtocolTransition"),
     ("rbcd_trustees", "RBCD", "kerberos", "high", "RBCD"),
-    ("esc1", "ESC1_CANDIDATE", "adcs", "high", "ADCS_ESC1"),
     ("adminsdholder_drift", "SD_DRIFT", "acl", "high", "WriteDACL"),
     ("missing_protected_users", "NO_PROTECTED", "identity", "medium", "MemberOf"),
     ("rodc_tier0_exposure", "RODC_TIER0", "identity", "critical", "RODCCachedCredential"),
@@ -112,6 +112,17 @@ def _contextual_severity(base: str, certainty: str) -> str:
     return base
 
 
+def _confidence_adjusted_risk(components: RiskComponents, confidence: str) -> RiskComponents:
+    """Discount candidate exploitability/exposure without hiding impact."""
+    factor = {"high": 1.0, "medium": 0.8, "low": 0.6}.get(confidence, 0.5)
+    return RiskComponents(
+        components.impact,
+        components.reachability,
+        round(components.exploitability * factor),
+        round(components.exposure * factor),
+    )
+
+
 def generate_findings(*, ad_data: dict, ag: ADGraph,
                       cheapest_paths: list[dict] | None = None) -> dict[str, Any]:
     graph = ag.G
@@ -142,11 +153,9 @@ def generate_findings(*, ad_data: dict, ag: ADGraph,
             if node_paths is None:
                 node_paths = paths_for(node_id)
             credential = badge in {"KERBEROASTABLE", "ASREP_ROAST"}
-            conditional = badge == "ESC1_CANDIDATE"
             certainty = classify_certainty(
                 paths=node_paths,
                 credential_required=credential,
-                conditional=conditional,
             )
             severity = _contextual_severity(base_severity, certainty)
             components = _risk(severity, certainty, node.get("sensitivity", "none"))
@@ -160,7 +169,7 @@ def generate_findings(*, ad_data: dict, ag: ADGraph,
                 badge=badge,
                 category=category,
                 severity=severity,
-                confidence="medium" if conditional else "high",
+                confidence="high",
                 certainty=certainty,
                 evidence=[Evidence(
                     type="ldap_attribute",
@@ -241,6 +250,94 @@ def generate_findings(*, ad_data: dict, ag: ADGraph,
                     created_at=created_at,
                     remediation=_remediation("GPO_TIER0_LINK"),
                 ))
+
+        if node.get("type") == "CertTemplate":
+            for candidate in node.get("adcs_findings", []):
+                esc = str(candidate.get("id", ""))
+                if esc not in {"ESC1", "ESC2", "ESC3", "ESC4"}:
+                    continue
+                if candidate.get("status") != "candidate":
+                    continue
+                relation = f"ADCS_{esc}"
+                confidence = str(candidate.get("confidence", "low"))
+                components = _confidence_adjusted_risk(
+                    _risk("high", "conditional", node.get("sensitivity", "none")),
+                    confidence,
+                )
+                reasons = list(candidate.get("reasons", []))
+                principals = list(candidate.get("principals", []))
+                findings.append(Finding.create(
+                    snapshot_id=snapshot_id,
+                    object_id=str(node_id),
+                    stable_object_id=node.get("guid") or str(node_id),
+                    object_type="certtemplate",
+                    technique=relation,
+                    index=stable_token(node_id, esc, *principals),
+                    badge=f"{esc}_CANDIDATE",
+                    category="adcs",
+                    severity="high",
+                    confidence=confidence,
+                    certainty="conditional",
+                    coverage="ldap_only",
+                    evidence=[Evidence(
+                        type="adcs_candidate",
+                        source="LDAP certificate template",
+                        value={
+                            "published": node.get("published"),
+                            "principals": principals,
+                            "reasons": reasons,
+                        },
+                        interpretation=(
+                            f"{esc} candidate; CA-side controls require authorized validation"
+                        ),
+                    )],
+                    paths=[],
+                    tier0_reachable=False,
+                    tier0_distance=None,
+                    mitre_technique="T1649",
+                    mitre_tactic=TACTICS["adcs"],
+                    risk_score=components.total,
+                    risk_components=components,
+                    created_at=created_at,
+                    remediation=_remediation(relation),
+                ))
+
+        if node.get("maq_abuse_suspected"):
+            node_paths = node_paths if node_paths is not None else paths_for(node_id)
+            components = _risk("high", "conditional", node.get("sensitivity", "none"))
+            findings.append(Finding.create(
+                snapshot_id=snapshot_id,
+                object_id=str(node_id),
+                stable_object_id=node.get("guid") or str(node_id),
+                object_type=str(node.get("type", "computer")).lower(),
+                technique="MAQAbuseObserved",
+                badge="MAQ_ABUSE_OBSERVED",
+                category="operational",
+                severity="high",
+                confidence="medium",
+                certainty="conditional",
+                coverage="ldap_only",
+                evidence=[Evidence(
+                    type="ldap_correlation",
+                    source="mS-DS-CreatorSID + whenCreated",
+                    value={
+                        "creator_sid": node.get("creator_sid"),
+                        "created": node.get("created"),
+                        "created_age_days": node.get("created_age_days"),
+                        "creator_volume": node.get("maq_creator_volume", 0),
+                    },
+                    interpretation="Non-admin creator exceeded the recent machine-creation threshold",
+                )],
+                paths=node_paths or [],
+                tier0_reachable=bool(node_paths),
+                tier0_distance=min((len(path.edges) for path in node_paths), default=None),
+                mitre_technique="T1136.002",
+                mitre_tactic="Persistence",
+                risk_score=components.total,
+                risk_components=components,
+                created_at=created_at,
+                remediation=_remediation("MAQAbuseObserved"),
+            ))
 
     for source, target, key, edge in graph.edges(keys=True, data=True):
         relation = str(edge.get("type", key))

@@ -35,6 +35,23 @@ LDAP link to a sensitive container, including order, enforced state and block
 inheritance context; they do not claim that uncollected SYSVOL content is
 malicious.
 
+Kerberos findings distinguish constrained delegation that requires Kerberos
+authentication (`CONSTRAINED_DELEGATION`) from protocol transition enabled by
+`TRUSTED_TO_AUTH_FOR_DELEGATION` (`PROTOCOL_TRANSITION`). Disabled users are not
+classified as AS-REP roastable, and gMSA/sMSA objects are excluded from the user
+Kerberoasting population.
+
+AD CS template findings are emitted as `ESC1_CANDIDATE` through
+`ESC4_CANDIDATE`, always with `coverage: ldap_only`. Publication by an
+LDAP-visible enrollment service raises confidence to medium; absent or unknown
+publication keeps confidence low because CA-side controls still require
+authorized validation.
+
+Configured `MachineAccountQuota` remains separate from observed activity.
+`MAQ_ABUSE_OBSERVED` requires `mS-DS-CreatorSID` and `whenCreated` correlation:
+at least three recent computer objects attributed to the same non-privileged
+creator inside the 30-day analysis window.
+
 Older schema-1 packages may omit these fields. Consumers must interpret their
 absence as `not_assessed`, never as an empty or healthy posture.
 

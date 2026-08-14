@@ -48,6 +48,12 @@ def analyze_template(
     issuance_unrestricted = not approval and signatures == 0
     can_enroll = bool(enroll_sids)
     findings: list[dict[str, Any]] = []
+    candidate_confidence = "medium" if published is True else "low"
+    publication_reason = (
+        "template is published by an LDAP-visible enrollment service"
+        if published is True
+        else "template publication is not confirmed by LDAP"
+    )
 
     if (
         name_flag & ENROLLEE_SUPPLIES_SUBJECT
@@ -56,8 +62,9 @@ def analyze_template(
         and can_enroll
     ):
         findings.append(_finding(
-            "ESC1", "candidate", "high",
-            ["enrollee supplies subject", "authentication EKU", "no approval or authorized signatures"],
+            "ESC1", "candidate", candidate_confidence,
+            ["enrollee supplies subject", "authentication EKU", "no approval or authorized signatures",
+             publication_reason],
             enroll_sids,
         ))
 
@@ -67,8 +74,9 @@ def analyze_template(
         and can_enroll
     ):
         findings.append(_finding(
-            "ESC2", "candidate", "medium",
-            ["Any Purpose EKU or no EKU restriction", "no approval or authorized signatures"],
+            "ESC2", "candidate", candidate_confidence,
+            ["Any Purpose EKU or no EKU restriction", "no approval or authorized signatures",
+             publication_reason],
             enroll_sids,
         ))
 
@@ -78,8 +86,9 @@ def analyze_template(
         and can_enroll
     ):
         findings.append(_finding(
-            "ESC3", "candidate", "high",
-            ["Certificate Request Agent EKU", "no approval or authorized signatures"],
+            "ESC3", "candidate", candidate_confidence,
+            ["Certificate Request Agent EKU", "no approval or authorized signatures",
+             publication_reason],
             enroll_sids,
         ))
 
@@ -90,8 +99,8 @@ def analyze_template(
     ]
     if controllers:
         findings.append(_finding(
-            "ESC4", "candidate", "medium",
-            ["principal can modify the certificate template"],
+            "ESC4", "candidate", candidate_confidence,
+            ["principal can modify the certificate template", publication_reason],
             controllers,
         ))
 

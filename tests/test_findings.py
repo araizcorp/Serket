@@ -112,6 +112,47 @@ class FindingEngineTests(unittest.TestCase):
         self.assertTrue(finding["tier0_reachable"])
         self.assertTrue(finding["evidence"][0]["value"]["enforced"])
 
+    def test_adcs_candidates_and_observed_maq_are_explicit_findings(self):
+        ag = ADGraph()
+        ag._add_node(
+            "template", "UserAuth", "CertTemplate", guid="template-guid",
+            published=False, coverage="ldap_only",
+            adcs_findings=[
+                {
+                    "id": esc, "status": "candidate", "confidence": "low",
+                    "reasons": [f"{esc} LDAP evidence"], "principals": ["u1"],
+                }
+                for esc in ("ESC1", "ESC2", "ESC3", "ESC4")
+            ],
+        )
+        ag._add_node(
+            "computer", "WS01$", "Workstation", guid="computer-guid",
+            maq_abuse_suspected=True, creator_sid="u1",
+            created="2026-08-13T09:00:00+00:00", created_age_days=1,
+            maq_creator_volume=3,
+        )
+
+        result = generate_findings(
+            ad_data={
+                "domain": {"name": "lab.example"},
+                "telemetry": {"started_at": "2026-08-14T09:00:00+00:00"},
+            },
+            ag=ag,
+        )
+        by_badge = {item["badge"]: item for item in result["findings"]}
+
+        self.assertTrue({
+            "ESC1_CANDIDATE", "ESC2_CANDIDATE", "ESC3_CANDIDATE",
+            "ESC4_CANDIDATE", "MAQ_ABUSE_OBSERVED",
+        }.issubset(by_badge))
+        self.assertEqual(by_badge["ESC1_CANDIDATE"]["coverage"], "ldap_only")
+        self.assertEqual(by_badge["ESC1_CANDIDATE"]["confidence"], "low")
+        self.assertFalse(by_badge["ESC1_CANDIDATE"]["evidence"][0]["value"]["published"])
+        self.assertEqual(
+            by_badge["MAQ_ABUSE_OBSERVED"]["evidence"][0]["value"]["creator_volume"],
+            3,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

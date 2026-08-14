@@ -681,7 +681,7 @@ function renderPath(path) {
       '<span class="node-icon">' + typeIcon(full.type) + '</span>' +
       '<span class="node-kind">' + esc(full.type || "Objeto") + '</span>' +
       '<span class="node-label">' + esc(full.name || full.id || "Objeto") + '</span>' +
-      '<span class="node-flags">' + nodeFlags(full).map(flag => '<span class="node-flag' + (/^(OLD|NO-PWD|STALE|REV|SHADOW|SD-DRIFT|NO-PROTECTED|DES|LOCKED|RODC-T0|PREWIN-OPEN|POLICY FAIL|ACL_ABUSE|TIER0_PATH|WRITE_DACL_TIER0|KERBEROASTABLE|ASREP_ROAST|UNCONSTRAINED_DELEGATION)/.test(flag) ? ' critical' : '') + '">' + esc(flag) + '</span>').join("") + '</span>' +
+      '<span class="node-flags">' + nodeFlags(full).map(flag => '<span class="node-flag' + (/^(OLD|NO-PWD|STALE|REV|SHADOW|SD-DRIFT|NO-PROTECTED|DES|LOCKED|RODC-T0|PREWIN-OPEN|POLICY FAIL|ACL_ABUSE|TIER0_PATH|WRITE_DACL_TIER0|KERBEROASTABLE|ASREP_ROAST|UNCONSTRAINED_DELEGATION|CONSTRAINED_DELEGATION|PROTOCOL_TRANSITION|MAQ_ABUSE_OBSERVED|ESC[1-4]_CANDIDATE)/.test(flag) ? ' critical' : '') + '">' + esc(flag) + '</span>').join("") + '</span>' +
     '</button>';
     if (index < steps.length) {
       const step = steps[index];
@@ -728,7 +728,8 @@ function nodeFlags(node) {
   if (node.laps_reuse) flags.push("LAPS REUSE");
   if (node.matches_domain_policy === false) flags.push("POLICY FAIL");
   if (node.unconstrained) flags.push("UD");
-  if ((node.delegation_targets || []).length) flags.push("CD");
+  if (node.protocol_transition) flags.push("PT");
+  else if (node.constrained_kerberos_only || (node.delegation_targets || []).length) flags.push("KCD");
   if ((node.rbcd_trustees || []).length) flags.push("RBCD");
   if (node.smartcard_required) flags.push("SMARTCARD");
   if (node.not_delegated) flags.push("NO-DELEG");
@@ -747,7 +748,9 @@ function nodeFlags(node) {
     RODC_TIER0: "RODC-T0", PREWIN_OPEN: "PREWIN-OPEN",
     REVERSIBLE_ENCRYPTION: "REV", DES_ONLY: "DES",
     UNCONSTRAINED_DELEGATION: "UD", ASREP_ROAST: "ASREP_ROAST",
-    KERBEROASTABLE: "KERBEROASTABLE"
+    KERBEROASTABLE: "KERBEROASTABLE",
+    CONSTRAINED_DELEGATION: "KCD", PROTOCOL_TRANSITION: "PT",
+    MAQ_ABUSE_OBSERVED: "MAQ-OBS"
   };
   const findings = Array.isArray(node.findings)
     ? node.findings

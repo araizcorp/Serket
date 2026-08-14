@@ -42,6 +42,9 @@ UAC_USE_DES_KEY_ONLY            = 0x00200000
 UAC_SERVER_TRUST                = 0x00002000   # Domain Controller
 UAC_PARTIAL_SECRETS_ACCOUNT     = 0x04000000   # Read-only domain controller
 
+MAQ_ACTIVITY_WINDOW_DAYS = 30
+MAQ_ACTIVITY_THRESHOLD = 3
+
 # ── ADCS ESC1 flags ───────────────────────────────────────────────────────────
 ENROLLEE_SUPPLIES_SUBJECT       = 0x00000001   # msPKI-Certificate-Name-Flag
 PEND_ALL_REQUESTS               = 0x00000002   # msPKI-Enrollment-Flag (manager approval)
@@ -178,6 +181,22 @@ def _days_since(value: Optional[datetime]) -> Optional[int]:
     if value is None:
         return None
     return max(0, (datetime.now(timezone.utc) - value).days)
+
+
+def _datetime_days_since(value) -> Optional[int]:
+    value = _first(value)
+    if isinstance(value, datetime):
+        parsed = value
+    elif value:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return _days_since(parsed.astimezone(timezone.utc))
 
 
 def _windows_interval_to_seconds(value) -> int:
@@ -643,7 +662,9 @@ class LDAPCollector:
         """Enumerate all user accounts and detect kerberoastable / ASREPRoastable."""
         entries = self._search(
             self.base_dn,
-            "(&(objectClass=user)(!(objectClass=computer))(!(objectClass=msDS-GroupManagedServiceAccount)))",
+            "(&(objectClass=user)(!(objectClass=computer))"
+            "(!(objectClass=msDS-GroupManagedServiceAccount))"
+            "(!(objectClass=msDS-ManagedServiceAccount)))",
             [
                 "samAccountName", "userPrincipalName", "distinguishedName",
                 "objectSid", "objectGUID", "memberOf", "userAccountControl",
@@ -671,6 +692,10 @@ class LDAPCollector:
             spns     = _as_list(attrs.get("servicePrincipalName"))
             members  = _as_list(attrs.get("memberOf"))
             enabled  = not bool(uac & UAC_ACCOUNTDISABLE)
+            delegation_targets = _as_list(attrs.get("msDS-AllowedToDelegateTo"))
+            protocol_transition = bool(
+                uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION
+            ) and bool(delegation_targets)
 
             # RBCD trustees on this user (who can impersonate TO this account)
             rbcd_raw = _raw_first(entry, "msDS-AllowedToActOnBehalfOfOtherIdentity")
@@ -724,10 +749,18 @@ class LDAPCollector:
                 "admin_count":            _int(attrs.get("adminCount")),
                 "enabled":                enabled,
                 "kerberoastable":         enabled and bool(spns) and not sam.endswith("$"),
-                "asreproastable":         bool(uac & UAC_DONT_REQ_PREAUTH),
+                "asreproastable":         enabled and bool(uac & UAC_DONT_REQ_PREAUTH),
                 "unconstrained":          bool(uac & UAC_TRUSTED_FOR_DELEGATION),
-                "constrained":            bool(uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION),
-                "delegation_targets":     _as_list(attrs.get("msDS-AllowedToDelegateTo")),
+                "constrained":            bool(delegation_targets),
+                "constrained_kerberos_only": bool(delegation_targets) and not protocol_transition,
+                "protocol_transition":    protocol_transition,
+                "delegation_mode":        (
+                    "unconstrained" if bool(uac & UAC_TRUSTED_FOR_DELEGATION)
+                    else "constrained_protocol_transition" if protocol_transition
+                    else "constrained_kerberos_only" if delegation_targets
+                    else "none"
+                ),
+                "delegation_targets":     delegation_targets,
                 "rbcd_trustees":          rbcd_trustees,
                 "sid_history":            sid_hist,
                 "description":            description,
@@ -790,6 +823,10 @@ class LDAPCollector:
             sam = _str(attrs.get("samAccountName"))
             dn = entry["dn"]
             uac = _int(attrs.get("userAccountControl"))
+            delegation_targets = _as_list(attrs.get("msDS-AllowedToDelegateTo"))
+            protocol_transition = bool(
+                uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION
+            ) and bool(delegation_targets)
 
             rbcd_trustees = []
             rbcd_raw = _raw_first(entry, "msDS-AllowedToActOnBehalfOfOtherIdentity")
@@ -813,8 +850,16 @@ class LDAPCollector:
                 "kerberoastable": False,
                 "asreproastable": False,
                 "unconstrained": bool(uac & UAC_TRUSTED_FOR_DELEGATION),
-                "constrained": bool(uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION),
-                "delegation_targets": _as_list(attrs.get("msDS-AllowedToDelegateTo")),
+                "constrained": bool(delegation_targets),
+                "constrained_kerberos_only": bool(delegation_targets) and not protocol_transition,
+                "protocol_transition": protocol_transition,
+                "delegation_mode": (
+                    "unconstrained" if bool(uac & UAC_TRUSTED_FOR_DELEGATION)
+                    else "constrained_protocol_transition" if protocol_transition
+                    else "constrained_kerberos_only" if delegation_targets
+                    else "none"
+                ),
+                "delegation_targets": delegation_targets,
                 "rbcd_trustees": rbcd_trustees,
                 "sid_history": [],
                 "description": "",
@@ -905,6 +950,7 @@ class LDAPCollector:
                 "msDS-AllowedToActOnBehalfOfOtherIdentity",
                 "msDS-isRODC", "msDS-RevealedUsers", "msDS-RevealedList",
                 "msDS-RevealOnDemandGroup", "msDS-NeverRevealGroup",
+                "mS-DS-CreatorSID", "whenCreated",
                 # Legacy Microsoft LAPS and modern Windows LAPS. Values are
                 # returned only when the bound identity has read permission.
                 "ms-Mcs-AdmPwd", "ms-Mcs-AdmPwdExpirationTime",
@@ -926,7 +972,11 @@ class LDAPCollector:
 
             is_dc         = bool(uac & UAC_SERVER_TRUST)
             unconstrained = bool(uac & UAC_TRUSTED_FOR_DELEGATION)
-            constrained   = bool(uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION)
+            delegation_targets = _as_list(attrs.get("msDS-AllowedToDelegateTo"))
+            protocol_transition = bool(
+                uac & UAC_TRUSTED_TO_AUTH_FOR_DELEGATION
+            ) and bool(delegation_targets)
+            constrained = bool(delegation_targets)
             is_rodc = bool(
                 uac & UAC_PARTIAL_SECRETS_ACCOUNT
                 or _first(_mapping_value(attrs, "msDS-isRODC"), False)
@@ -993,7 +1043,17 @@ class LDAPCollector:
                 "computer_role":        _computer_role(is_dc, operating_system),
                 "unconstrained":        unconstrained,
                 "constrained":          constrained,
-                "delegation_targets":   _as_list(attrs.get("msDS-AllowedToDelegateTo")),
+                "constrained_kerberos_only": constrained and not protocol_transition,
+                "protocol_transition":  protocol_transition,
+                "delegation_mode":      (
+                    "unconstrained" if unconstrained
+                    else "constrained_protocol_transition" if protocol_transition
+                    else "constrained_kerberos_only" if constrained
+                    else "none"
+                ),
+                "delegation_targets":   delegation_targets,
+                "creator_sid":          _sid_value(_raw_first(entry, "mS-DS-CreatorSID")),
+                "created":              _datetime_attr_to_iso(attrs.get("whenCreated")),
                 "rbcd_trustees":        rbcd_trustees,
                 # LAPS
                 "laps_readable":        bool(laps_pwd),
@@ -1501,6 +1561,55 @@ class LDAPCollector:
                 computer.get("is_rodc") and computer["rodc_tier0_revealed_users"]
             )
 
+    @staticmethod
+    def _apply_maq_activity(domain: dict, users: dict, groups: dict,
+                            computers: dict) -> None:
+        """Separate configured MAQ exposure from observed recent machine creation."""
+        privileged = {
+            sid for sid, group in groups.items() if group.get("high_value")
+        }
+        privileged.update(
+            sid for sid, user in users.items() if user.get("sensitive_admin")
+        )
+        by_creator: dict[str, list[str]] = {}
+        for sid, computer in computers.items():
+            creator = computer.get("creator_sid", "")
+            age_days = _datetime_days_since(computer.get("created"))
+            recent_non_admin = bool(
+                int(domain.get("maq", 0) or 0) > 0
+                and creator
+                and creator not in privileged
+                and age_days is not None
+                and age_days <= MAQ_ACTIVITY_WINDOW_DAYS
+            )
+            computer["created_age_days"] = age_days
+            computer["maq_created_by_non_admin"] = recent_non_admin
+            computer["maq_abuse_suspected"] = False
+            computer["maq_creator_volume"] = 0
+            if recent_non_admin:
+                by_creator.setdefault(creator, []).append(sid)
+
+        suspicious = {
+            creator: object_ids for creator, object_ids in by_creator.items()
+            if len(object_ids) >= MAQ_ACTIVITY_THRESHOLD
+        }
+        for creator, object_ids in suspicious.items():
+            for sid in object_ids:
+                computers[sid]["maq_abuse_suspected"] = True
+                computers[sid]["maq_creator_volume"] = len(object_ids)
+
+        domain["maq_activity"] = {
+            "status": "observed" if suspicious else "no_threshold_breach",
+            "window_days": MAQ_ACTIVITY_WINDOW_DAYS,
+            "threshold": MAQ_ACTIVITY_THRESHOLD,
+            "recent_non_admin_computers": sum(len(items) for items in by_creator.values()),
+            "suspected_computers": sum(len(items) for items in suspicious.values()),
+            "creators": [
+                {"sid": creator, "count": len(object_ids)}
+                for creator, object_ids in sorted(suspicious.items())
+            ],
+        }
+
     # ── Orchestrator ─────────────────────────────────────────────────────────
 
     def collect_all(
@@ -1613,6 +1722,7 @@ class LDAPCollector:
         # the DACL fingerprints collected above.
         self._apply_adminsdholder_drift(users, groups)
         self._apply_security_posture(users, groups, computers)
+        self._apply_maq_activity(domain, users, groups, computers)
 
         domain["protected_users_group_present"] = any(
             group.get("is_protected_users") for group in groups.values()
