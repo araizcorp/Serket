@@ -142,6 +142,7 @@ def save_enriched_package(data: dict[str, Any], output_path: str | Path) -> Path
         "trusts": data.get("trusts", []),
         "permissions": data.get("acls", []),
         "adcs": data.get("adcs", {}),
+        "sysvol": data.get("sysvol", {}),
         "summary": {
             "stats": data.get("stats", {}),
             "sid_name": data.get("sid_name", {}),
@@ -149,9 +150,18 @@ def save_enriched_package(data: dict[str, Any], output_path: str | Path) -> Path
             "coverage": data.get("coverage", {}),
             "system_counts": data.get("system_counts", {}),
         },
-        "analysis": {"surface": data.get("surface", {}), "paths": data.get("paths", [])},
+        "analysis": {
+            "surface": data.get("surface", {}),
+            "paths": data.get("paths", []),
+            "findings": data.get("findings", []),
+            "risk_summary": data.get("risk_summary", {}),
+            "posture": data.get("posture", {}),
+            "snapshot_id": data.get("snapshot_id", ""),
+            "sensitivity": data.get("sensitivity", {}),
+        },
         "graph": {"graph": data.get("graph", {}), "high_value": data.get("high_value", [])},
         "interchange": data.get("interchange", {}),
+        "external_surface": data.get("external_surface_enrichment", {}),
     }
     with tempfile.TemporaryDirectory(prefix="serket-enriched-") as temporary:
         root = Path(temporary)
@@ -163,11 +173,13 @@ def save_enriched_package(data: dict[str, Any], output_path: str | Path) -> Path
                 json.dumps({"category": category, "data": value}, indent=2, default=_json_default),
                 encoding="utf-8",
             )
-        report = data.get("credential_enrichment", {})
+        credential_report = data.get("credential_enrichment", {})
+        external_report = data.get("external_surface_enrichment", {})
         (root / "report.txt").write_text(
-            "SERKET - Keyring credential enrichment\n"
-            f"Matched identities: {report.get('matched', 0)}\n"
-            f"Unmatched identities: {report.get('unmatched', 0)}\n"
+            "SERKET - Sanitized enrichment\n"
+            f"Keyring matched identities: {credential_report.get('matched', 0)}\n"
+            f"Portico matched assets: {external_report.get('matched', 0)}\n"
+            f"Portico external findings: {external_report.get('findings', 0)}\n"
             "No secret values are included.\n",
             encoding="utf-8",
         )

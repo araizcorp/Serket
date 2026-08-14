@@ -199,6 +199,28 @@ serket_corp_local_YYYYMMDD_HHMMSS/
 
 `serket server`, `--load` y `--serve` aceptan el directorio o su `manifest.json`. Los JSON únicos de versiones anteriores siguen siendo compatibles.
 
+### Integración opcional con Portico
+
+Portico sigue siendo una aplicación independiente: el nodo expuesto a Internet
+no necesita acceso LDAP y el host de Serket no necesita salida a Internet. Para
+consumir un bridge sanitizado transferido desde el bastión:
+
+```bash
+serket external-enrich --input assessment.serket \
+  --bridge portico-bridge.json --output assessment-external.serket
+```
+
+Solo para una ejecución combinada autorizada, instala el ejecutable independiente
+`portico` en `PATH` y activa explícitamente la orquestación:
+
+```bash
+serket -d corp.local -u auditor -k --include-external-surface
+```
+
+Serket invoca `portico scan` y `portico export` como subprocesos, consume únicamente
+el bridge sin secretos y omite esta cobertura sin fallar si Portico no está
+disponible. Serket no importa el scanner HTTP/DNS/TLS ni sondea Internet por defecto.
+
 ### Abrir el resultado más reciente en el Workbench
 
 Cuando termine la recopilación, inicia la interfaz web sin tener que localizar el paquete manualmente:

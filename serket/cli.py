@@ -62,8 +62,9 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawTextHelpFormatter,
     )
     p.add_argument(
-        "command", nargs="?", choices=["server", "enrich"], metavar="{server,enrich}",
-        help="Open the web UI or apply a Keyring credential bridge",
+        "command", nargs="?", choices=["server", "enrich", "external-enrich"],
+        metavar="{server,enrich,external-enrich}",
+        help="Open the web UI or apply a sanitized enrichment bridge",
     )
     auth = p.add_argument_group("Authentication")
     auth.add_argument(
@@ -93,6 +94,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--sysvol-root", metavar="PATH",
         help="Parse an explicitly supplied local/mounted SYSVOL copy (no share discovery)",
     )
+    opt.add_argument(
+        "--include-external-surface", action="store_true",
+        help="Explicitly run standalone Portico from PATH and consume its sanitized bridge",
+    )
     opt.add_argument("-o", "--output", default=DEFAULT_OUTPUT, metavar="PATH",
                      help=f"Output directory, or FILE.serket for enrich (default: {DEFAULT_OUTPUT})")
     opt.add_argument("--load", metavar="PATH",
@@ -102,7 +107,7 @@ def _build_parser() -> argparse.ArgumentParser:
     opt.add_argument("--input", metavar="PATH",
                      help="Input .serket package for the enrich command")
     opt.add_argument("--bridge", metavar="PATH",
-                     help="Keyring serket-bridge JSON for the enrich command")
+                     help="Keyring or Portico bridge JSON for an enrichment command")
     opt.add_argument("--port", type=int, default=8080,
                      help="Web UI port for server/--serve (default: 8080, always 127.0.0.1)")
     opt.add_argument("--quiet", "-q", action="store_true",
@@ -187,6 +192,43 @@ def _run_collect(args) -> None:
             analysis = Pathfinder.find_all(ag, ad_data, max_paths=args.max_paths)
     else:
         analysis = Pathfinder.find_all(ag, ad_data, max_paths=args.max_paths)
+
+    if args.include_external_surface:
+        if not args.quiet:
+            console.print("  [dim white]Running optional standalone Portico collector...[/]")
+        from networkx.readwrite import json_graph as nx_jg
+        from serket.collector.external_surface import collect_external_surface_bridge
+        from serket.external_surface import apply_external_bridge
+
+        bridge, external_coverage = collect_external_surface_bridge(args.domain, probe_ldaps=True)
+        ad_data.setdefault("coverage", {})["external_surface"] = external_coverage
+        if bridge is not None:
+            runtime = {
+                **ad_data,
+                **analysis,
+                "meta": {"snapshot_id": analysis.get("snapshot_id", "")},
+                "graph": nx_jg.node_link_data(ag.G),
+                "high_value": sorted(ag.high_value),
+            }
+            external_report = apply_external_bridge(runtime, bridge)
+            for key in ("findings", "risk_summary", "posture", "snapshot_id", "sensitivity"):
+                if key in runtime:
+                    analysis[key] = runtime[key]
+            ad_data["external_surface_enrichment"] = external_report
+            ad_data["coverage"] = runtime.get("coverage", ad_data["coverage"])
+            # Copy the sanitized annotations and unmatched ExternalAsset nodes
+            # back into the graph that save_results() serializes.
+            for node in runtime["graph"].get("nodes", []):
+                node_id = node.get("id")
+                if node_id in ag.G:
+                    ag.G.nodes[node_id].update(node)
+                elif node_id:
+                    ag.G.add_node(node_id, **{key: value for key, value in node.items() if key != "id"})
+        elif not args.quiet:
+            console.print(
+                f"  [yellow]Portico omitted:[/] {external_coverage.get('reason', 'unavailable')}"
+            )
+        stats = ag.stats()
 
     # Pass ag so graph is serialized — enables graph reconstruction on --load / --serve
     out_dir = save_results(ad_data, stats, analysis, args.output, ag=ag)
@@ -385,6 +427,29 @@ def _run_enrich(input_path: str | None, bridge_path: str | None, output_path: st
     )
 
 
+def _run_external_enrich(input_path: str | None, bridge_path: str | None, output_path: str) -> None:
+    """Apply Portico observations and emit a new portable Serket package."""
+    from serket.enrichment import save_enriched_package
+    from serket.external_surface import apply_external_bridge, load_external_bridge
+
+    if not input_path or not bridge_path:
+        raise ValueError("serket external-enrich requires --input and --bridge")
+    if Path(output_path).suffix.casefold() != ".serket":
+        raise ValueError("serket external-enrich requires --output FILE.serket")
+    if Path(input_path).expanduser().resolve() == Path(output_path).expanduser().resolve():
+        raise ValueError("enriched output must not overwrite the input package")
+    data = load_results(input_path)
+    report = apply_external_bridge(data, load_external_bridge(bridge_path))
+    destination = save_enriched_package(data, output_path)
+    console.print(f"[green]Externally enriched package written:[/] [cyan]{destination}[/]")
+    console.print(
+        f"  Matched: [bold]{report['matched']}[/]  "
+        f"Unmatched: [bold]{report['unmatched']}[/]  "
+        f"Ambiguous: [bold]{report['ambiguous']}[/]  "
+        f"Findings: [bold]{report['findings']}[/]"
+    )
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -406,6 +471,14 @@ def main() -> None:
             _run_enrich(args.input, args.bridge, args.output)
         except (OSError, ValueError) as exc:
             console.print(f"[red][!] Enrichment failed: {exc}[/]")
+            sys.exit(2)
+        return
+
+    if args.command == "external-enrich":
+        try:
+            _run_external_enrich(args.input, args.bridge, args.output)
+        except (OSError, ValueError) as exc:
+            console.print(f"[red][!] External enrichment failed: {exc}[/]")
             sys.exit(2)
         return
 

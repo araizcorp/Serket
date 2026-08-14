@@ -193,6 +193,30 @@ parsing is bounded, script contents are represented only by hashes, and GPP
 `cpassword` values are never retained. Without `--sysvol-root`, SYSVOL remains
 `not_assessed` rather than being inferred safe.
 
+### Optional Portico external-surface integration
+
+Portico remains a separate application so an internet-facing assessment node
+does not need LDAP access and the Serket host does not need outbound internet
+access. Import a transferred, sanitized bridge into an existing package:
+
+```bash
+serket external-enrich --input assessment.serket \
+  --bridge portico-bridge.json --output assessment-external.serket
+```
+
+For an explicitly authorized combined run, install the standalone `portico`
+executable in `PATH` and opt in:
+
+```bash
+serket -d corp.local -u auditor -k --include-external-surface
+```
+
+This convenience mode invokes `portico scan` and `portico export` as separate
+processes, consumes only the secret-free bridge, and omits external collection
+without failing if Portico is unavailable. Serket does not import Portico's HTTP,
+DNS, or TLS scanner code, and never performs external probing by default.
+
+
 ### Collection controls
 
 ```bash
@@ -211,6 +235,7 @@ serket \
 | `--max-paths N` | Maximum global paths saved; default `20` |
 | `--no-acls` | Skip owner and DACL collection; faster but removes important permission edges |
 | `--no-adcs` | Skip certificate-template enumeration |
+| `--include-external-surface` | Explicitly invoke standalone Portico and consume its sanitized bridge |
 | `--ldaps` | Use LDAP over TLS on port 636 |
 | `-o DIR` | Select the output directory |
 | `--quiet` | Suppress progress output for machine-oriented execution |

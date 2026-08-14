@@ -87,6 +87,7 @@ def save_results(
         "permissions": ad_data.get("acls", []),
         "adcs": ad_data.get("adcs", {}),
         "sysvol": ad_data.get("sysvol", {}),
+        "external_surface": ad_data.get("external_surface_enrichment", {}),
         "summary": {
             "stats": graph_stats,
             "sid_name": ad_data.get("sid_name", {}),
@@ -370,6 +371,8 @@ def _load_bundle(manifest_path: Path, manifest: dict) -> dict:
         "trusts": components["trusts"],
         "acls": components["permissions"],
         "adcs": components["adcs"],
+        "sysvol": components.get("sysvol", {}),
+        "external_surface_enrichment": components.get("external_surface", {}),
         "interchange": components.get("interchange", {}),
         **summary,
         **analysis,

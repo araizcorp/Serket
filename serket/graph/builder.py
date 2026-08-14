@@ -280,6 +280,7 @@ class ADGraph:
                            dn=c["dn"],
                            guid=c.get("guid", ""),
                            dns=c["dns"],
+                           spns=c.get("spns", []),
                            os=c["os"],
                            os_version=c.get("os_version", ""),
                            os_service_pack=c.get("os_service_pack", ""),

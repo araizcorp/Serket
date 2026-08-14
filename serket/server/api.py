@@ -3,8 +3,8 @@ Embedded FastAPI server for the Serket Workbench interface.
 
 The server is deliberately local-only in native mode. Result files may contain
 sensitive directory metadata, so the runtime disables caching and exposes no
-interactive API documentation. The only mutation route applies validated
-Keyring metadata to the current process; it never writes a result package.
+interactive API documentation. Mutation routes only apply validated sanitized
+bridges to the current process; they never write a result package.
 """
 from __future__ import annotations
 
@@ -172,6 +172,30 @@ def create_app(data: dict[str, Any]):
             bridge = json.loads(body.decode("utf-8"))
             validate_bridge(bridge)
             return apply_bridge(data, bridge)
+        except (UnicodeError, json.JSONDecodeError, EnrichmentError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/external-enrich")
+    async def api_external_enrich(request: Request):
+        """Apply a validated Portico bridge to this in-memory local session."""
+        from serket.enrichment import MAX_BRIDGE_BYTES, EnrichmentError
+        from serket.external_surface import apply_external_bridge, validate_external_bridge
+
+        declared = request.headers.get("content-length")
+        if declared and (not declared.isdigit() or int(declared) > MAX_BRIDGE_BYTES):
+            raise HTTPException(status_code=413, detail="bridge exceeds the 8 MiB safety limit")
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].strip().casefold()
+        if content_type != "application/json":
+            raise HTTPException(status_code=415, detail="application/json is required")
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > MAX_BRIDGE_BYTES:
+                raise HTTPException(status_code=413, detail="bridge exceeds the 8 MiB safety limit")
+        try:
+            bridge = json.loads(body.decode("utf-8"))
+            validate_external_bridge(bridge)
+            return apply_external_bridge(data, bridge)
         except (UnicodeError, json.JSONDecodeError, EnrichmentError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
