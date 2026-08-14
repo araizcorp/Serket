@@ -15,4 +15,20 @@ next to every native result directory.
 - Existing schema-1 result directories without hashes remain readable for
   backwards compatibility but are not considered integrity-verified.
 
+## Risk inference extension
+
+Pack 3 snapshots add optional fields to `analysis.json` without changing the
+package schema version:
+
+- `snapshot_id`: stable identifier reused when the same snapshot is reanalysed.
+- `findings`: `finding://serket/v1` records with evidence, certainty, paths,
+  MITRE context and explainable `serket-risk/v1` components.
+- `risk_summary`: aggregate score, severity counts and category scores intended
+  for posture comparison. Consumers must also retain `risk_model`.
+- `sensitivity`: node sensitivity derived from Tier-0 identity, containment,
+  group membership and GPO links.
+
+Older schema-1 packages may omit these fields. Consumers must interpret their
+absence as `not_assessed`, never as an empty or healthy posture.
+
 Treat the complete package as sensitive assessment evidence.

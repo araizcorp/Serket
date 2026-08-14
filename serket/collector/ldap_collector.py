@@ -625,7 +625,7 @@ class LDAPCollector:
             "(&(objectClass=user)(!(objectClass=computer))(!(objectClass=msDS-GroupManagedServiceAccount)))",
             [
                 "samAccountName", "userPrincipalName", "distinguishedName",
-                "objectSid", "memberOf", "userAccountControl",
+                "objectSid", "objectGUID", "memberOf", "userAccountControl",
                 "servicePrincipalName", "adminCount", "description",
                 "mail", "pwdLastSet", "accountExpires", "lastLogon",
                 "lastLogonTimestamp", "lockoutTime", "logonHours",
@@ -693,6 +693,7 @@ class LDAPCollector:
 
             users[sid] = {
                 "sid":                    sid,
+                "guid":                   _guid_from_entry(entry),
                 "name":                   sam,
                 "upn":                    _str(attrs.get("userPrincipalName")),
                 "dn":                     dn,
@@ -814,7 +815,7 @@ class LDAPCollector:
             self.base_dn,
             "(objectClass=group)",
             [
-                "samAccountName", "distinguishedName", "objectSid",
+                "samAccountName", "distinguishedName", "objectSid", "objectGUID",
                 "member", "memberOf", "adminCount", "description", "groupType",
             ],
         )
@@ -849,6 +850,7 @@ class LDAPCollector:
 
             groups[sid] = {
                 "sid":          sid,
+                "guid":         _guid_from_entry(entry),
                 "name":         sam,
                 "dn":           dn,
                 "member_dns":   _as_list(attrs.get("member")),
@@ -876,7 +878,7 @@ class LDAPCollector:
             "(objectClass=computer)",
             [
                 "samAccountName", "dNSHostName", "distinguishedName",
-                "objectSid", "userAccountControl", "operatingSystem",
+                "objectSid", "objectGUID", "userAccountControl", "operatingSystem",
                 "operatingSystemVersion", "operatingSystemServicePack",
                 "memberOf", "primaryGroupID", "msDS-AllowedToDelegateTo",
                 "msDS-AllowedToActOnBehalfOfOtherIdentity",
@@ -954,6 +956,7 @@ class LDAPCollector:
             ))
             computers[sid] = {
                 "sid":                  sid,
+                "guid":                 _guid_from_entry(entry),
                 "name":                 sam,
                 "dns":                  _str(attrs.get("dNSHostName")),
                 "dn":                   dn,

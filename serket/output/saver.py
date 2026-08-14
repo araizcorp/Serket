@@ -65,6 +65,7 @@ def save_results(
         "generated": datetime.now().isoformat(),
         "domain": ad_data.get("domain", {}).get("name", ""),
         "collection": ad_data.get("telemetry", {}),
+        "snapshot_id": analysis.get("snapshot_id", ""),
     }
     graph_component: dict = {"graph": {}, "high_value": []}
     if ag is not None:
@@ -95,6 +96,10 @@ def save_results(
         "analysis": {
             "surface": analysis.get("surface", {}),
             "paths": analysis.get("paths", []),
+            "findings": analysis.get("findings", []),
+            "risk_summary": analysis.get("risk_summary", {}),
+            "snapshot_id": analysis.get("snapshot_id", ""),
+            "sensitivity": analysis.get("sensitivity", {}),
         },
         "graph": graph_component,
         "interchange": _build_interchange(ad_data),

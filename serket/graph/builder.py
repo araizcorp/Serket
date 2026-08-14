@@ -203,6 +203,7 @@ class ADGraph:
         for sid, u in ad_data.get("users", {}).items():
             self._add_node(sid, u["name"], "User",
                            dn=u["dn"],
+                           guid=u.get("guid", ""),
                            enabled=u["enabled"],
                            kerberoastable=u["kerberoastable"],
                            asreproastable=u["asreproastable"],
@@ -244,6 +245,7 @@ class ADGraph:
         for sid, g in ad_data.get("groups", {}).items():
             self._add_node(sid, g["name"], "Group",
                            dn=g["dn"],
+                           guid=g.get("guid", ""),
                            admin_count=g["admin_count"],
                            high_value=g.get("high_value", False),
                            is_dns_admins=g.get("is_dns_admins", False),
@@ -265,6 +267,7 @@ class ADGraph:
             }.get(role, "Workstation")
             self._add_node(sid, c["name"], node_type,
                            dn=c["dn"],
+                           guid=c.get("guid", ""),
                            dns=c["dns"],
                            os=c["os"],
                            os_version=c.get("os_version", ""),

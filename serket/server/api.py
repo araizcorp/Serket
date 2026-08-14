@@ -105,6 +105,14 @@ def create_app(data: dict[str, Any]):
     async def api_paths():
         return data.get("paths", [])
 
+    @app.get("/api/findings")
+    async def api_findings():
+        return {
+            "snapshot_id": data.get("snapshot_id") or data.get("meta", {}).get("snapshot_id", ""),
+            "risk_summary": data.get("risk_summary", {}),
+            "findings": data.get("findings", []),
+        }
+
     @app.get("/api/graph")
     async def api_graph():
         return _normalise_graph(data)

@@ -9,6 +9,9 @@ const state = {
   meta: {},
   adcs: {},
   trusts: [],
+  findings: [],
+  riskSummary: {},
+  findingsByObject: new Map(),
   nodeMap: new Map(),
   searchNodes: [],
   incoming: new Map(),
@@ -266,7 +269,8 @@ async function init() {
     api("/api/meta", {}),
     api("/api/adcs", {}),
     api("/api/trusts", []),
-    api("/api/detection-catalog", {entries: {}})
+    api("/api/detection-catalog", {entries: {}}),
+    api("/api/findings", {findings: [], risk_summary: {}})
   ]);
 
   state.domain = result[0] || {};
@@ -278,6 +282,8 @@ async function init() {
   state.adcs = result[6] || {};
   state.trusts = Array.isArray(result[7]) ? result[7] : [];
   const detectionEntries = (result[8] && result[8].entries) || {};
+  state.findings = Array.isArray(result[9] && result[9].findings) ? result[9].findings : [];
+  state.riskSummary = (result[9] && result[9].risk_summary) || {};
   Object.keys(detectionEntries).forEach(type => {
     const item = detectionEntries[type] || {};
     EDGE_CATALOG[type] = {
@@ -304,6 +310,14 @@ function buildIndexes() {
   const nodes = Array.isArray(state.graph.nodes) ? state.graph.nodes.slice() : [];
   const known = new Set(nodes.map(node => String(node.id)));
 
+  state.findingsByObject = new Map();
+  state.findings.forEach(finding => {
+    const objectId = String(finding.object_id || "");
+    if (!objectId) return;
+    if (!state.findingsByObject.has(objectId)) state.findingsByObject.set(objectId, []);
+    state.findingsByObject.get(objectId).push(finding);
+  });
+
   state.paths.forEach(path => {
     (path.steps || []).forEach(step => {
       [
@@ -318,6 +332,10 @@ function buildIndexes() {
     });
   });
 
+  nodes.forEach(node => {
+    const inferred = state.findingsByObject.get(String(node.id));
+    if (inferred && inferred.length) node.findings = inferred;
+  });
   state.nodeMap = new Map(nodes.map(node => [String(node.id), node]));
   state.searchNodes = nodes.slice().sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
   state.incoming = new Map();
@@ -646,7 +664,7 @@ function renderPath(path) {
       '<span class="node-icon">' + typeIcon(full.type) + '</span>' +
       '<span class="node-kind">' + esc(full.type || "Objeto") + '</span>' +
       '<span class="node-label">' + esc(full.name || full.id || "Objeto") + '</span>' +
-      '<span class="node-flags">' + nodeFlags(full).map(flag => '<span class="node-flag' + (/^(OLD|NO-PWD|STALE|REV|SHADOW|SD-DRIFT|NO-PROTECTED|DES|LOCKED|RODC-T0|PREWIN-OPEN|POLICY FAIL)/.test(flag) ? ' critical' : '') + '">' + esc(flag) + '</span>').join("") + '</span>' +
+      '<span class="node-flags">' + nodeFlags(full).map(flag => '<span class="node-flag' + (/^(OLD|NO-PWD|STALE|REV|SHADOW|SD-DRIFT|NO-PROTECTED|DES|LOCKED|RODC-T0|PREWIN-OPEN|POLICY FAIL|ACL_ABUSE|TIER0_PATH|WRITE_DACL_TIER0|KERBEROASTABLE|ASREP_ROAST|UNCONSTRAINED_DELEGATION)/.test(flag) ? ' critical' : '') + '">' + esc(flag) + '</span>').join("") + '</span>' +
     '</button>';
     if (index < steps.length) {
       const step = steps[index];
@@ -707,7 +725,26 @@ function nodeFlags(node) {
   if (node.is_exchange_privileged) flags.push("EXCHANGE");
   if (node.is_key_admin) flags.push("KEY-ADMIN");
   if (node.prewin2000_exposure) flags.push("PREWIN-OPEN");
-  return flags;
+  const aliases = {
+    SHADOW: "SHADOW", SD_DRIFT: "SD-DRIFT", NO_PROTECTED: "NO-PROTECTED",
+    RODC_TIER0: "RODC-T0", PREWIN_OPEN: "PREWIN-OPEN",
+    REVERSIBLE_ENCRYPTION: "REV", DES_ONLY: "DES",
+    UNCONSTRAINED_DELEGATION: "UD", ASREP_ROAST: "ASREP_ROAST",
+    KERBEROASTABLE: "KERBEROASTABLE"
+  };
+  const findings = Array.isArray(node.findings)
+    ? node.findings
+    : (state.findingsByObject.get(String(node.id)) || []);
+  findings.forEach(finding => {
+    const badge = String(finding.badge || "FINDING");
+    const base = aliases[badge] || badge;
+    const decorated = badge + " · " + String(finding.certainty || "informational").toUpperCase() +
+      (finding.tier0_reachable ? " · TIER0" : "");
+    const index = flags.indexOf(base);
+    if (index >= 0) flags[index] = decorated;
+    else flags.push(decorated);
+  });
+  return Array.from(new Set(flags));
 }
 
 function renderGraphContext() {
@@ -1024,7 +1061,8 @@ function renderDetection() {
     ["Páginas", fmt(telemetry.pages), "respuestas paginadas"],
     ["Entradas", fmt(telemetry.entries), "objetos procesados"],
     ["Duración", fmtDuration(telemetry.duration_ms), "tiempo total"],
-    ["Ritmo", telemetry.rate_per_second ? Number(telemetry.rate_per_second).toFixed(2) : "—", "entradas por segundo"]
+    ["Ritmo", telemetry.rate_per_second ? Number(telemetry.rate_per_second).toFixed(2) : "—", "entradas por segundo"],
+    ["Riesgo", fmt(state.riskSummary.global_score), state.riskSummary.risk_model || "sin modelo"]
   ];
   $("#telemetry-grid").innerHTML = cards.map(card => '<article class="telemetry-card"><span>' + esc(card[0]) + '</span><strong>' + esc(card[1]) + '</strong><small>' + esc(card[2]) + '</small></article>').join("");
 
@@ -1036,8 +1074,20 @@ function renderDetection() {
       return '<div class="stage-row"><span class="stage-name">' + esc(name) + '</span><span>' + fmt(row.searches) + '</span><span>' + fmt(row.pages) + '</span><span>' + fmt(row.entries) + '</span></div>';
     }).join("") : '<div class="list-empty">La colección no contiene telemetría por etapas.</div>');
 
+  const findingGroups = new Map();
+  state.findings.forEach(finding => {
+    const badge = String(finding.badge || "FINDING");
+    const group = findingGroups.get(badge) || {count: 0, max: 0, certainties: new Set()};
+    group.count += 1;
+    group.max = Math.max(group.max, Number(finding.risk_score || 0));
+    group.certainties.add(String(finding.certainty || "informational"));
+    findingGroups.set(badge, group);
+  });
+  const findingRows = Array.from(findingGroups.entries()).sort((a, b) => b[1].max - a[1].max || a[0].localeCompare(b[0]));
   const types = uniqueEdgeTypes();
-  $("#coverage-list").innerHTML = types.length ? types.map(type => {
+  $("#coverage-list").innerHTML = findingRows.length ? findingRows.map(([badge, group]) =>
+    '<div class="coverage-row"><div><strong>' + esc(badge) + '</strong><span>' + esc(Array.from(group.certainties).join(", ").toUpperCase()) + ' · score máximo ' + fmt(group.max) + '</span></div><span class="coverage-state documented">' + fmt(group.count) + ' FINDINGS</span></div>'
+  ).join("") : types.length ? types.map(type => {
     const documented = Boolean(EDGE_CATALOG[type]);
     return '<div class="coverage-row"><div><strong>' + esc(type) + '</strong><span>' + (documented ? 'Expectativas y corrección documentadas' : 'Pendiente de investigación y validación') + '</span></div><span class="coverage-state ' + (documented ? 'documented' : '') + '">' + (documented ? 'DOCUMENTADO' : 'DESCONOCIDO') + '</span></div>';
   }).join("") : '<div class="list-empty">No hay relaciones incluidas en rutas.</div>';

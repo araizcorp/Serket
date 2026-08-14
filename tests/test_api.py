@@ -12,6 +12,9 @@ class ApiTests(unittest.TestCase):
             "stats": {"nodes": 2, "edges": 1},
             "paths": [],
             "surface": {},
+            "findings": [{"id": "finding://serket/v1/test/1", "object_id": "u1"}],
+            "risk_summary": {"risk_model": "serket-risk/v1", "global_score": 42},
+            "snapshot_id": "test-snapshot",
             "coverage": {"directory": {"status": "collected"}},
             "system_counts": {"workstation": 1, "server": 0, "domain_controller": 0},
             "quality": {"status": "ok", "acl_relationships": 2},
@@ -130,6 +133,15 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(json.loads(stats_body)["systems"]["workstation"], 1)
         self.assertEqual(json.loads(stats_body)["quality"]["status"], "ok")
         self.assertEqual(json.loads(coverage_body)["directory"]["status"], "collected")
+
+    def test_findings_endpoint_exposes_versioned_risk_context(self):
+        status, _, body = self.request("/api/findings")
+        payload = json.loads(body)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(payload["snapshot_id"], "test-snapshot")
+        self.assertEqual(payload["risk_summary"]["risk_model"], "serket-risk/v1")
+        self.assertEqual(payload["findings"][0]["object_id"], "u1")
 
 
 if __name__ == "__main__":

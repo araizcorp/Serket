@@ -31,13 +31,21 @@ class V21Tests(unittest.TestCase):
         graph.add_node("S-1-5-21-1-2-3-1100", name="alice", type="User")
         ag = SimpleNamespace(G=graph, high_value=set())
         with TemporaryDirectory() as temp:
-            bundle = Path(save_results(self.data(), {"nodes": 1}, {"surface": {}, "paths": []}, temp, ag))
+            analysis = {
+                "surface": {}, "paths": [], "snapshot_id": "snapshot-test",
+                "findings": [{"id": "finding://serket/v1/snapshot-test/1", "object_id": "S-1-5-21-1-2-3-1100"}],
+                "risk_summary": {"risk_model": "serket-risk/v1", "global_score": 25},
+            }
+            bundle = Path(save_results(self.data(), {"nodes": 1}, analysis, temp, ag))
             package = bundle.with_suffix(".serket")
             self.assertTrue(package.is_file())
             loaded = load_results(str(package))
             self.assertEqual(loaded["domain"]["name"], "lab.example")
             self.assertEqual(loaded["interchange"]["schema"], "araizcorp-identity-bridge/v1")
             self.assertFalse(loaded["interchange"]["sensitive_values_included"])
+            self.assertEqual(loaded["snapshot_id"], "snapshot-test")
+            self.assertEqual(loaded["risk_summary"]["global_score"], 25)
+            self.assertEqual(loaded["findings"][0]["object_id"], "S-1-5-21-1-2-3-1100")
             with zipfile.ZipFile(package) as archive:
                 self.assertIn("interchange.json", archive.namelist())
 

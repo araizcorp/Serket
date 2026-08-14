@@ -8,9 +8,11 @@ AraizCorp LLC — Serket
 """
 from __future__ import annotations
 
+from collections import deque
 from typing import Optional
 import networkx as nx
 
+from serket.finding import AttackPath, EdgeRef, stable_token
 from serket.graph.builder import ADGraph
 
 
@@ -247,6 +249,138 @@ def _describe_path(G: nx.DiGraph, path: list[str]) -> list[dict]:
     return steps
 
 
+def get_all_paths(ag: ADGraph, origin: str, target_set: Optional[set[str]] = None,
+                  max_depth: int = 5, max_paths: int = 10) -> list[AttackPath]:
+    """Return bounded simple paths, deduplicated by target and technique chain."""
+    graph = ag.G
+    targets = set(target_set or _resolve_high_value_nodes(ag))
+    if origin not in graph or max_depth < 1 or max_paths < 1:
+        return []
+
+    queue = deque([(origin, [], [origin])])
+    paths: list[AttackPath] = []
+    seen_chains: set[tuple[str, tuple[str, ...]]] = set()
+    expansions = 0
+    max_expansions = max(1000, max_paths * 500)
+
+    while queue and len(paths) < max_paths and expansions < max_expansions:
+        current, edge_refs, visited = queue.popleft()
+        if edge_refs and current in targets:
+            chain = tuple(edge.relation for edge in edge_refs)
+            signature = (str(current), chain)
+            if signature not in seen_chains:
+                seen_chains.add(signature)
+                paths.append(AttackPath(
+                    path_id=stable_token(
+                        graph.nodes.get(origin, {}).get("guid") or origin,
+                        graph.nodes.get(current, {}).get("guid") or current,
+                        *chain,
+                    ),
+                    edges=edge_refs,
+                    cost=sum(edge.cost for edge in edge_refs),
+                    technique_chain=list(chain),
+                ))
+            continue
+        if len(edge_refs) >= max_depth:
+            continue
+
+        outgoing = sorted(
+            graph.out_edges(current, keys=True, data=True),
+            key=lambda item: (str(item[1]), str(item[3].get("type", item[2]))),
+        )
+        for source, target, key, data in outgoing:
+            expansions += 1
+            if data.get("traversable", True) is False or target in visited:
+                continue
+            relation = str(data.get("type", key))
+            mitre = data.get("mitre") or {}
+            edge_ref = EdgeRef(
+                id=stable_token(
+                    graph.nodes.get(source, {}).get("guid") or source,
+                    graph.nodes.get(target, {}).get("guid") or target,
+                    relation,
+                ),
+                source=str(source),
+                target=str(target),
+                relation=relation,
+                cost=float(data.get("opsec_score", 5)),
+                mitre=mitre.get("id") if isinstance(mitre, dict) else None,
+            )
+            queue.append((target, [*edge_refs, edge_ref], [*visited, target]))
+
+    exact_candidates = [
+        path for target in sorted(targets)
+        if (path := get_cheapest_path(ag, origin, target)) is not None
+    ]
+    if exact_candidates:
+        exact = min(
+            exact_candidates,
+            key=lambda item: (item.cost, len(item.edges), item.path_id),
+        )
+        exact_signature = (
+            exact.edges[-1].target,
+            tuple(exact.technique_chain),
+        )
+        replaced = False
+        for index, candidate in enumerate(paths):
+            signature = (
+                candidate.edges[-1].target,
+                tuple(candidate.technique_chain),
+            )
+            if signature == exact_signature:
+                paths[index] = exact
+                replaced = True
+                break
+        if not replaced:
+            if len(paths) >= max_paths:
+                paths.pop()
+            paths.append(exact)
+        for candidate in paths:
+            candidate.is_cheapest = candidate.path_id == exact.path_id
+    return sorted(paths, key=lambda item: (not item.is_cheapest, item.cost, len(item.edges)))
+
+
+def get_cheapest_path(ag: ADGraph, origin: str, target: str) -> Optional[AttackPath]:
+    """Return the globally cheapest traversable path for one origin/target pair."""
+    graph = _traversable_projection(ag.G)
+    if origin not in graph or target not in graph or origin == target:
+        return None
+    try:
+        nodes = nx.shortest_path(graph, origin, target, weight="opsec_score")
+    except (nx.NetworkXNoPath, nx.NodeNotFound):
+        return None
+
+    edges = []
+    for source, destination in zip(nodes, nodes[1:]):
+        data = graph.get_edge_data(source, destination) or {}
+        relation = str(data.get("type", "?"))
+        mitre = data.get("mitre") or {}
+        edges.append(EdgeRef(
+            id=stable_token(
+                graph.nodes.get(source, {}).get("guid") or source,
+                graph.nodes.get(destination, {}).get("guid") or destination,
+                relation,
+            ),
+            source=str(source),
+            target=str(destination),
+            relation=relation,
+            cost=float(data.get("opsec_score", 5)),
+            mitre=mitre.get("id") if isinstance(mitre, dict) else None,
+        ))
+    chain = [edge.relation for edge in edges]
+    return AttackPath(
+        path_id=stable_token(
+            graph.nodes.get(origin, {}).get("guid") or origin,
+            graph.nodes.get(target, {}).get("guid") or target,
+            *chain,
+        ),
+        edges=edges,
+        cost=sum(edge.cost for edge in edges),
+        technique_chain=chain,
+        is_cheapest=True,
+    )
+
+
 # ── Attack surface ────────────────────────────────────────────────────────────
 
 def get_attack_surface(ag: ADGraph, ad_data: dict) -> dict:
@@ -430,6 +564,9 @@ def get_attack_surface(ag: ADGraph, ad_data: dict) -> dict:
 
 class Pathfinder:
 
+    get_all_paths = staticmethod(get_all_paths)
+    get_cheapest_path = staticmethod(get_cheapest_path)
+
     @staticmethod
     def find_all(ag: ADGraph, ad_data: dict, max_paths: int = 20) -> dict:
         """
@@ -507,8 +644,21 @@ class Pathfinder:
         paths.sort(key=lambda p: (p["cost"], p["hops"]))
         paths = paths[:max_paths]
 
+        from serket.finding_engine import generate_findings
+        from serket.sensitivity import propagate_sensitivity
+
+        sensitivity = propagate_sensitivity(ag)
+        inference = generate_findings(
+            ad_data=ad_data,
+            ag=ag,
+            cheapest_paths=paths,
+        )
         return {
             "high_value": list(hvn),
             "paths":      paths,
             "surface":    get_attack_surface(ag, ad_data),
+            "snapshot_id": inference["snapshot_id"],
+            "findings": inference["findings"],
+            "risk_summary": inference["risk_summary"],
+            "sensitivity": sensitivity,
         }
