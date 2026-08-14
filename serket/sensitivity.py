@@ -33,6 +33,8 @@ def propagate_sensitivity(ag: ADGraph) -> dict[str, str]:
     while changed:
         changed = False
         for source, target, edge in graph.edges(data=True):
+            if edge.get("traversable", True) is False:
+                continue
             relation = edge.get("type")
             target_level = levels.get(str(target), Sensitivity.NONE)
             if target_level == Sensitivity.NONE:

@@ -88,6 +88,30 @@ class FindingEngineTests(unittest.TestCase):
         self.assertNotEqual(first["snapshot_id"], other_snapshot["snapshot_id"])
         self.assertEqual(ag.G.nodes["u1"]["findings"][0]["object_id"], "u1")
 
+    def test_enabled_gpo_link_to_tier0_is_a_metadata_only_finding(self):
+        ag = ADGraph()
+        ag._add_node("gpo", "DC Security", "GPO", guid="gpo-guid", coverage="ldap_only")
+        ag._add_node("dc-ou", "Domain Controllers", "OU")
+        ag._add_node("dc", "DC01$", "DomainController", is_dc=True)
+        _add_edge(ag.G, "gpo", "dc-ou", "GPOLink", enabled=True, enforced=True, link_order=1)
+        _add_edge(ag.G, "dc-ou", "dc", "Contains")
+        propagate_sensitivity(ag)
+
+        result = generate_findings(
+            ad_data={
+                "domain": {"name": "lab.example"},
+                "telemetry": {"started_at": "2026-08-14T09:00:00+00:00"},
+            },
+            ag=ag,
+        )
+        finding = next(item for item in result["findings"] if item["badge"] == "GPO_TIER0_LINK")
+
+        self.assertEqual(finding["coverage"], "ldap_only")
+        self.assertEqual(finding["certainty"], "conditional")
+        self.assertEqual(finding["confidence"], "medium")
+        self.assertTrue(finding["tier0_reachable"])
+        self.assertTrue(finding["evidence"][0]["value"]["enforced"])
+
 
 if __name__ == "__main__":
     unittest.main()

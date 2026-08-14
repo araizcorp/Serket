@@ -70,6 +70,7 @@ class Finding:
     severity: str
     confidence: str
     certainty: str
+    coverage: Optional[str] = None
     evidence: list[Evidence] = field(default_factory=list)
     paths: list[AttackPath] = field(default_factory=list)
     tier0_reachable: bool = False

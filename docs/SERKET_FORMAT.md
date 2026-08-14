@@ -30,6 +30,11 @@ package schema version:
 - `sensitivity`: node sensitivity derived from Tier-0 identity, containment,
   group membership and GPO links.
 
+`GPO_TIER0_LINK` findings use `coverage: ldap_only`. They describe an enabled
+LDAP link to a sensitive container, including order, enforced state and block
+inheritance context; they do not claim that uncollected SYSVOL content is
+malicious.
+
 Older schema-1 packages may omit these fields. Consumers must interpret their
 absence as `not_assessed`, never as an empty or healthy posture.
 

@@ -228,6 +228,27 @@ def _linked_dn(value) -> str:
     return text[match.start():] if match else text
 
 
+def _parse_gplink(value) -> list[dict]:
+    """Parse ordered gPLink entries and their disabled/enforced option bits."""
+    links = []
+    pattern = re.compile(r"\[(?:LDAP://)?(.+?);(\d+)\]", re.IGNORECASE)
+    for order, match in enumerate(pattern.finditer(_str(value)), start=1):
+        gpo_dn = match.group(1).strip()
+        options = _int(match.group(2))
+        guid_match = re.search(r"\{([0-9A-Fa-f-]{36})\}", gpo_dn)
+        if not guid_match:
+            continue
+        links.append({
+            "guid": guid_match.group(1).lower(),
+            "gpo_dn": gpo_dn,
+            "order": order,
+            "options": options,
+            "enabled": not bool(options & 0x1),
+            "enforced": bool(options & 0x2),
+        })
+    return links
+
+
 def _dacl_fingerprint(raw_sd: bytes) -> str:
     """Hash the exact self-relative DACL bytes for AdminSDHolder comparison."""
     # TODO(pack3): add an optional semantic fingerprint that canonicalizes ACEs
@@ -1249,24 +1270,43 @@ class LDAPCollector:
     # ── GPO links ─────────────────────────────────────────────────────────────
 
     def collect_gpos(self) -> list[dict]:
-        """Collect GPO objects and their OU links."""
+        """Collect LDAP GPO metadata, ordered links and inheritance posture."""
         gpo_entries = self._search(
             self.base_dn,
             "(objectClass=groupPolicyContainer)",
-            ["displayName", "distinguishedName", "objectGUID", "gPCFileSysPath"],
+            [
+                "displayName", "distinguishedName", "objectGUID",
+                "gPCFileSysPath", "gPCFunctionalityVersion",
+                "gPCMachineExtensionNames", "gPCUserExtensionNames",
+                "flags", "versionNumber", "whenCreated", "whenChanged",
+            ],
         )
-        gpos = {
-            _guid_from_entry(e): {
-                "id":       f"GUID:{_guid_from_entry(e)}",
-                "name":     _str(e["attributes"].get("displayName")),
-                "dn":       e["dn"],
-                "guid":     _guid_from_entry(e),
-                "path":     _str(e["attributes"].get("gPCFileSysPath")),
+        gpos = {}
+        for entry in gpo_entries:
+            guid = _guid_from_entry(entry)
+            if not guid:
+                continue
+            attrs = entry["attributes"]
+            flags = _int(attrs.get("flags"))
+            gpos[guid] = {
+                "id": f"GUID:{guid}",
+                "name": _str(attrs.get("displayName")),
+                "dn": entry["dn"],
+                "guid": guid,
+                "path": _str(attrs.get("gPCFileSysPath")),
+                "functionality_version": _int(attrs.get("gPCFunctionalityVersion")),
+                "version_number": _int(attrs.get("versionNumber")),
+                "flags": flags,
+                "user_settings_enabled": not bool(flags & 0x1),
+                "computer_settings_enabled": not bool(flags & 0x2),
+                "machine_extensions": _as_list(attrs.get("gPCMachineExtensionNames")),
+                "user_extensions": _as_list(attrs.get("gPCUserExtensionNames")),
+                "created": _datetime_attr_to_iso(attrs.get("whenCreated")),
+                "changed": _datetime_attr_to_iso(attrs.get("whenChanged")),
                 "linked_to": [],
+                "links": [],
+                "coverage": "ldap_only",
             }
-            for e in gpo_entries
-            if _guid_from_entry(e)
-        }
 
         for gpo in gpos.values():
             self._dn_map[gpo["dn"].lower()] = gpo["id"]
@@ -1276,16 +1316,24 @@ class LDAPCollector:
         ou_entries = self._search(
             self.base_dn,
             "(|(objectClass=organizationalUnit)(objectClass=domain))",
-            ["distinguishedName", "gPLink"],
+            ["distinguishedName", "gPLink", "gPOptions"],
         )
         for entry in ou_entries:
-            gp_link = _str(entry["attributes"].get("gPLink"))
+            attrs = entry["attributes"]
+            gp_link = _str(attrs.get("gPLink"))
             if not gp_link:
                 continue
-            for guid_match in re.finditer(r"\{([0-9A-Fa-f\-]+)\}", gp_link):
-                guid = guid_match.group(1).lower()
+            gp_options = _int(attrs.get("gPOptions"))
+            for link in _parse_gplink(gp_link):
+                guid = link["guid"]
                 if guid in gpos:
                     gpos[guid]["linked_to"].append(entry["dn"])
+                    gpos[guid]["links"].append({
+                        **link,
+                        "target_dn": entry["dn"],
+                        "target_gp_options": gp_options,
+                        "target_blocks_inheritance": bool(gp_options & 0x1),
+                    })
 
         return list(gpos.values())
 

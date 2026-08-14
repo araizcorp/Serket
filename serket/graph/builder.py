@@ -302,7 +302,14 @@ class ADGraph:
             self._add_node(
                 gpo["id"], gpo.get("name", gpo["id"]), "GPO",
                 dn=gpo.get("dn", ""), guid=gpo.get("guid", ""),
-                path=gpo.get("path", ""),
+                path=gpo.get("path", ""), flags=gpo.get("flags", 0),
+                functionality_version=gpo.get("functionality_version", 0),
+                version_number=gpo.get("version_number", 0),
+                user_settings_enabled=gpo.get("user_settings_enabled", True),
+                computer_settings_enabled=gpo.get("computer_settings_enabled", True),
+                machine_extensions=gpo.get("machine_extensions", []),
+                user_extensions=gpo.get("user_extensions", []),
+                gpo_links=gpo.get("links", []), coverage=gpo.get("coverage", "ldap_only"),
             )
 
     def _add_domain_policy_edges(self, ad_data: dict):
@@ -447,12 +454,29 @@ class ADGraph:
         for gpo in ad_data.get("gpos", []):
             if gpo.get("id") not in self.G:
                 continue
-            for target_dn in gpo.get("linked_to", []):
+            links = gpo.get("links") or [
+                {"target_dn": target_dn, "enabled": True, "enforced": False,
+                 "order": index, "options": 0}
+                for index, target_dn in enumerate(gpo.get("linked_to", []), start=1)
+            ]
+            for link in links:
+                target_dn = link.get("target_dn", "")
                 target_id = dn_map.get(str(target_dn).lower())
                 if target_id and target_id in self.G:
                     _add_edge(
                         self.G, gpo["id"], target_id, "GPOLink",
-                        detail=f"GPO '{gpo.get('name', gpo['id'])}' applied to {target_dn}",
+                        detail=(
+                            f"GPO '{gpo.get('name', gpo['id'])}' linked to {target_dn} "
+                            f"(order {link.get('order', '?')}, "
+                            f"{'enforced' if link.get('enforced') else 'not enforced'}, "
+                            f"{'enabled' if link.get('enabled', True) else 'disabled'})"
+                        ),
+                        traversable=bool(link.get("enabled", True)),
+                        enabled=bool(link.get("enabled", True)),
+                        enforced=bool(link.get("enforced", False)),
+                        link_order=link.get("order"),
+                        link_options=link.get("options", 0),
+                        target_blocks_inheritance=bool(link.get("target_blocks_inheritance", False)),
                     )
 
     def _add_dc_control_edges(self, ad_data: dict):
@@ -589,6 +613,7 @@ class ADGraph:
                       traversable=etype not in {
                           "GetChanges", "GetChangesAll",
                           "GetChangesInFilteredSet", "Enroll",
+                          "ApplyGroupPolicy",
                       })
 
     # ── ADCS / ESC1 edges ────────────────────────────────────────────────────

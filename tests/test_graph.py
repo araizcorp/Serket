@@ -134,6 +134,10 @@ class GraphCoverageTests(unittest.TestCase):
             "dn": "CN={gpo},CN=Policies,CN=System,DC=lab,DC=example",
             "path": r"\\lab.example\SysVol\lab.example\Policies\{gpo}",
             "linked_to": [ou_dn],
+            "links": [{
+                "target_dn": ou_dn, "enabled": True, "enforced": True,
+                "order": 1, "options": 2, "target_blocks_inheritance": True,
+            }],
         }]
 
         graph = ADGraph.build_from_data(data)
@@ -143,6 +147,9 @@ class GraphCoverageTests(unittest.TestCase):
         self.assertEqual(graph.G.nodes[user]["pwd_age_days"], 2400)
         edge = graph.G.get_edge_data(gpo_id, ou_id)["GPOLink"]
         self.assertIn("Support Policy", edge["detail"])
+        self.assertTrue(edge["enforced"])
+        self.assertEqual(edge["link_order"], 1)
+        self.assertTrue(edge["target_blocks_inheritance"])
 
 
 if __name__ == "__main__":

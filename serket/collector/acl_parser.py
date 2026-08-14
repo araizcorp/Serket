@@ -46,6 +46,7 @@ EXT_RIGHT = {
     "45ec5156-db7e-47bb-b53f-dbeb2d03c40f": "ReName",
     "0e10c968-78fb-11d2-90d4-00c04f79dc55": "Enroll",              # ADCS enroll
     "a05b8cc2-17bc-4802-a710-e7c15ab866a2": "AutoEnroll",
+    "edacfd8f-ffb3-11d1-b41d-00a0c968f939": "ApplyGroupPolicy",
 }
 
 # Property write GUIDs (ADS_RIGHT_DS_WRITE_PROP on specific property)
@@ -208,6 +209,8 @@ def _classify_ace(mask: int, obj_guid: Optional[str]) -> Optional[str]:
             return "ForceChangePassword"
         if right == "Enroll":
             return "Enroll"   # handled separately for ADCS
+        if right == "ApplyGroupPolicy":
+            return "ApplyGroupPolicy"
         if right == "GetChanges":
             return None        # read-only sync, not DCSync by itself
         return "AllExtendedRights"

@@ -5,7 +5,12 @@ from unittest.mock import patch
 
 from ldap3.protocol.convert import build_controls_list
 
-from serket.collector.acl_parser import GENERIC_ALL, PROP_GUID
+from serket.collector.acl_parser import (
+    ADS_RIGHT_DS_CONTROL_ACCESS,
+    GENERIC_ALL,
+    PROP_GUID,
+    _classify_ace,
+)
 from serket.collector.ldap_collector import (
     LDAPCollector,
     UAC_DONT_REQ_PREAUTH,
@@ -425,6 +430,56 @@ class CollectorTests(unittest.TestCase):
 
         for rid, _name, _os_name, _uac, role in fixtures:
             self.assertEqual(computers[f"S-1-5-21-1-2-3-{rid}"]["computer_role"], role)
+
+    def test_gpo_ldap_metadata_and_link_options_are_normalized(self):
+        collector = self.collector()
+        gpo_guid = "11111111-2222-3333-4444-555555555555"
+
+        def search(_base, ldap_filter, *_args, **_kwargs):
+            if ldap_filter == "(objectClass=groupPolicyContainer)":
+                return [{
+                    "dn": f"CN={{{gpo_guid}}},CN=Policies,CN=System,{collector.base_dn}",
+                    "attributes": {
+                        "displayName": "Tier 0 Policy",
+                        "objectGUID": gpo_guid,
+                        "gPCFileSysPath": rf"\\lab.example\SYSVOL\lab.example\Policies\{{{gpo_guid}}}",
+                        "gPCFunctionalityVersion": "2",
+                        "versionNumber": "65538",
+                        "flags": "1",
+                        "gPCMachineExtensionNames": ["[{machine-extension}]"],
+                        "gPCUserExtensionNames": [],
+                    },
+                }]
+            return [{
+                "dn": f"OU=Domain Controllers,{collector.base_dn}",
+                "attributes": {
+                    "gPLink": (
+                        f"[LDAP://CN={{{gpo_guid}}},CN=Policies,CN=System,"
+                        f"{collector.base_dn};2]"
+                    ),
+                    "gPOptions": "1",
+                },
+            }]
+
+        collector._search = search
+        gpo = collector.collect_gpos()[0]
+
+        self.assertFalse(gpo["user_settings_enabled"])
+        self.assertTrue(gpo["computer_settings_enabled"])
+        self.assertEqual(gpo["functionality_version"], 2)
+        self.assertEqual(gpo["version_number"], 65538)
+        self.assertTrue(gpo["links"][0]["enabled"])
+        self.assertTrue(gpo["links"][0]["enforced"])
+        self.assertTrue(gpo["links"][0]["target_blocks_inheritance"])
+
+    def test_apply_group_policy_extended_right_is_preserved(self):
+        self.assertEqual(
+            _classify_ace(
+                ADS_RIGHT_DS_CONTROL_ACCESS,
+                "edacfd8f-ffb3-11d1-b41d-00a0c968f939",
+            ),
+            "ApplyGroupPolicy",
+        )
 
 
 if __name__ == "__main__":

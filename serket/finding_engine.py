@@ -180,6 +180,68 @@ def generate_findings(*, ad_data: dict, ag: ADGraph,
             )
             findings.append(finding)
 
+        if node.get("type") == "GPO":
+            sensitive_links = []
+            for _, target, key, edge in graph.out_edges(node_id, keys=True, data=True):
+                if (
+                    str(edge.get("type", key)) != "GPOLink"
+                    or edge.get("traversable", True) is False
+                ):
+                    continue
+                target_data = graph.nodes.get(target, {})
+                if target_data.get("sensitivity") not in {"high", "critical"}:
+                    continue
+                sensitive_links.append((target, target_data, edge))
+            if sensitive_links:
+                if node_paths is None:
+                    node_paths = paths_for(node_id)
+                target_level = (
+                    "critical" if any(
+                        target_data.get("sensitivity") == "critical"
+                        for _, target_data, _ in sensitive_links
+                    ) else "high"
+                )
+                components = _risk("high", "conditional", target_level)
+                evidence = [Evidence(
+                    type="gpo_link",
+                    source="gPLink",
+                    value={
+                        "target_id": str(target),
+                        "target_name": target_data.get("name", str(target)),
+                        "target_sensitivity": target_data.get("sensitivity"),
+                        "order": edge.get("link_order"),
+                        "enforced": bool(edge.get("enforced")),
+                        "target_blocks_inheritance": bool(edge.get("target_blocks_inheritance")),
+                    },
+                    interpretation=(
+                        f"Enabled GPO link reaches sensitive container "
+                        f"{target_data.get('name', target)}"
+                    ),
+                ) for target, target_data, edge in sensitive_links]
+                findings.append(Finding.create(
+                    snapshot_id=snapshot_id,
+                    object_id=str(node_id),
+                    stable_object_id=node.get("guid") or str(node_id),
+                    object_type="gpo",
+                    technique="GPO_TIER0_LINK",
+                    badge="GPO_TIER0_LINK",
+                    category="gpo",
+                    severity="high",
+                    confidence="medium",
+                    certainty="conditional",
+                    coverage="ldap_only",
+                    evidence=evidence,
+                    paths=node_paths or [],
+                    tier0_reachable=bool(node_paths),
+                    tier0_distance=min((len(path.edges) for path in node_paths), default=None),
+                    mitre_technique="T1484.001",
+                    mitre_tactic=TACTICS["gpo"],
+                    risk_score=components.total,
+                    risk_components=components,
+                    created_at=created_at,
+                    remediation=_remediation("GPO_TIER0_LINK"),
+                ))
+
     for source, target, key, edge in graph.edges(keys=True, data=True):
         relation = str(edge.get("type", key))
         if relation not in ACL_RELATIONS:
