@@ -61,6 +61,7 @@ class RiskComponents:
 @dataclass
 class Finding:
     id: str
+    correlation_id: str
     snapshot_id: str
     object_id: str
     object_type: str
@@ -85,11 +86,15 @@ class Finding:
     def create(cls, *, snapshot_id: str, object_id: str, technique: str,
                index: int = 0, stable_object_id: str | None = None,
                **kwargs) -> "Finding":
+        correlation = stable_token(
+            stable_object_id or object_id, technique, index
+        )
         locator = stable_token(
-            snapshot_id, stable_object_id or object_id, technique, index
+            snapshot_id, correlation
         )
         return cls(
             id=f"{FINDING_SCHEMA}/{snapshot_id}/{locator}",
+            correlation_id=f"finding-key://serket/v1/{correlation}",
             snapshot_id=snapshot_id,
             object_id=object_id,
             **kwargs,

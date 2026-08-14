@@ -106,11 +106,41 @@ def create_app(data: dict[str, Any]):
         return data.get("paths", [])
 
     @app.get("/api/findings")
-    async def api_findings():
+    async def api_findings(
+        badge: str = "",
+        severity: str = "",
+        tier0_reachable: str = "",
+        object_id: str = "",
+        offset: int = 0,
+        limit: int = 500,
+    ):
+        if offset < 0 or limit < 1 or limit > 2000:
+            raise HTTPException(
+                status_code=400,
+                detail="offset must be non-negative and limit must be between 1 and 2000",
+            )
+        tier0 = tier0_reachable.strip().casefold()
+        if tier0 not in {"", "true", "false", "1", "0"}:
+            raise HTTPException(status_code=400, detail="tier0_reachable must be true or false")
+        findings = list(data.get("findings", []))
+        if badge:
+            findings = [item for item in findings if str(item.get("badge", "")).casefold() == badge.casefold()]
+        if severity:
+            findings = [item for item in findings if str(item.get("severity", "")).casefold() == severity.casefold()]
+        if object_id:
+            findings = [item for item in findings if str(item.get("object_id", "")) == object_id]
+        if tier0:
+            expected = tier0 in {"true", "1"}
+            findings = [item for item in findings if bool(item.get("tier0_reachable")) is expected]
+        total = len(findings)
         return {
             "snapshot_id": data.get("snapshot_id") or data.get("meta", {}).get("snapshot_id", ""),
             "risk_summary": data.get("risk_summary", {}),
-            "findings": data.get("findings", []),
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "returned": len(findings[offset:offset + limit]),
+            "findings": findings[offset:offset + limit],
         }
 
     @app.get("/api/graph")

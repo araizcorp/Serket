@@ -259,6 +259,23 @@ async function api(path, fallback) {
   }
 }
 
+async function apiAllFindings() {
+  const findings = [];
+  let offset = 0;
+  let riskSummary = {};
+  let snapshotId = "";
+  while (true) {
+    const page = await api("/api/findings?offset=" + offset + "&limit=2000", null);
+    if (!page || !Array.isArray(page.findings)) break;
+    findings.push(...page.findings);
+    riskSummary = page.risk_summary || riskSummary;
+    snapshotId = page.snapshot_id || snapshotId;
+    offset += page.findings.length;
+    if (!page.findings.length || offset >= Number(page.total || 0)) break;
+  }
+  return {findings, risk_summary: riskSummary, snapshot_id: snapshotId};
+}
+
 async function init() {
   const result = await Promise.all([
     api("/api/domain", {}),
@@ -270,7 +287,7 @@ async function init() {
     api("/api/adcs", {}),
     api("/api/trusts", []),
     api("/api/detection-catalog", {entries: {}}),
-    api("/api/findings", {findings: [], risk_summary: {}})
+    apiAllFindings()
   ]);
 
   state.domain = result[0] || {};

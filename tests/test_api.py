@@ -1,6 +1,7 @@
 import asyncio
 import json
 import unittest
+from urllib.parse import urlsplit
 
 from serket.server.api import _normalise_graph, create_app
 
@@ -45,6 +46,7 @@ class ApiTests(unittest.TestCase):
         self.app = create_app(self.data)
 
     def request(self, path):
+        parsed = urlsplit(path)
         messages = []
         request_sent = False
 
@@ -64,9 +66,9 @@ class ApiTests(unittest.TestCase):
             "http_version": "1.1",
             "method": "GET",
             "scheme": "http",
-            "path": path,
-            "raw_path": path.encode("ascii"),
-            "query_string": b"",
+            "path": parsed.path,
+            "raw_path": parsed.path.encode("ascii"),
+            "query_string": parsed.query.encode("ascii"),
             "headers": [],
             "client": ("127.0.0.1", 50000),
             "server": ("127.0.0.1", 8080),
@@ -142,6 +144,17 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["snapshot_id"], "test-snapshot")
         self.assertEqual(payload["risk_summary"]["risk_model"], "serket-risk/v1")
         self.assertEqual(payload["findings"][0]["object_id"], "u1")
+        self.assertEqual(payload["total"], 1)
+
+    def test_findings_endpoint_filters_and_validates_pagination(self):
+        status, _, body = self.request(
+            "/api/findings?severity=critical&tier0_reachable=true&limit=10"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["total"], 0)
+
+        invalid_status, _, _ = self.request("/api/findings?limit=5000")
+        self.assertEqual(invalid_status, 400)
 
 
 if __name__ == "__main__":

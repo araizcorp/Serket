@@ -78,6 +78,14 @@ class FindingEngineTests(unittest.TestCase):
             [item["id"] for item in first["findings"]],
             [item["id"] for item in second["findings"]],
         )
+        other_snapshot = generate_findings(
+            ad_data={**ad_data, "telemetry": {"started_at": "2026-08-15T09:00:00+00:00"}},
+            ag=ag,
+        )
+        first_by_key = {item["correlation_id"] for item in first["findings"]}
+        other_by_key = {item["correlation_id"] for item in other_snapshot["findings"]}
+        self.assertEqual(first_by_key, other_by_key)
+        self.assertNotEqual(first["snapshot_id"], other_snapshot["snapshot_id"])
         self.assertEqual(ag.G.nodes["u1"]["findings"][0]["object_id"], "u1")
 
 
