@@ -138,23 +138,23 @@ const TYPE_CLASS = {User:"t-user", Group:"t-group", Computer:"t-computer", Works
 const color = n => TYPE_COLOR[n.type] || "#8a94ab";
 const typeClass = n => TYPE_CLASS[n.type] || "t-other";
 
-/* Iconos SVG (trazo, 24×24) — sin emojis ni letras sueltas. */
+/* Iconos SVG — glyphs geométricos, trazo afilado 1.5, sin formas infantiles. */
 const ICONS = {
-  User: '<circle cx="12" cy="8.2" r="3.4"/><path d="M5.2 19.6c.8-3.6 3.6-5.4 6.8-5.4s6 1.8 6.8 5.4"/>',
-  Group: '<circle cx="9" cy="9.2" r="2.9"/><path d="M3.4 19.2c.6-3 2.8-4.6 5.6-4.6s5 1.6 5.6 4.6"/><circle cx="16.8" cy="9.8" r="2.4"/><path d="M15.8 14.8c2.4.2 4.1 1.6 4.7 4.4"/>',
-  Computer: '<rect x="3.5" y="4.5" width="17" height="11.5" rx="1.8"/><path d="M9.5 20h5M12 16v4"/>',
-  Server: '<rect x="4" y="3.8" width="16" height="7.2" rx="1.8"/><rect x="4" y="13" width="16" height="7.2" rx="1.8"/><path d="M7.3 7.4h.01M7.3 16.6h.01" stroke-width="2.6"/>',
-  Crown: '<path d="M4.5 8.5L7 17.5h10l2.5-9-4.6 3-2.9-5.2-2.9 5.2-4.6-3z"/><path d="M7.5 20.5h9"/>',
-  Cert: '<rect x="4" y="3.5" width="11" height="14" rx="1.8"/><circle cx="8" cy="8.4" r="1.8"/><path d="M6.5 12.4h6"/><path d="M13 14.5l2.3 2.3 3.7-4.1"/>',
-  Doc: '<path d="M6.5 3.5h6.8l4.2 4.2v13H6.5z"/><path d="M13.3 3.5v4.2h4.2"/><path d="M9.3 12.2h5.4M9.3 15.6h5.4"/>',
-  Dot: '<circle cx="12" cy="12" r="4"/>'
+  User: '<circle cx="12" cy="7.2" r="3.1"/><path d="M4.8 20c0-4 3.2-6.2 7.2-6.2s7.2 2.2 7.2 6.2"/>',
+  Group: '<circle cx="8.2" cy="8" r="2.6"/><circle cx="16" cy="8.6" r="2.2"/><path d="M3.2 19.4c0-3.4 2.2-5.2 5-5.2s5 1.8 5 5.2"/><path d="M14.2 14.7c2.7.2 4.6 1.7 5.1 4.7"/>',
+  Computer: '<rect x="3" y="4.5" width="18" height="11.5"/><path d="M9 20h6M12 16v4"/>',
+  Server: '<rect x="4" y="3.5" width="16" height="7"/><rect x="4" y="13.5" width="16" height="7"/><rect x="6.4" y="6.1" width="1.6" height="1.6"/><rect x="6.4" y="16.1" width="1.6" height="1.6"/>',
+  Dc: '<path d="M3 9.5L12 4l9 5.5"/><path d="M5 9.5V18M9.3 9.5V18M14.7 9.5V18M19 9.5V18"/><path d="M3 20.5h18"/>',
+  Cert: '<path d="M12 2.8l7.2 2.6v5.2c0 4.8-3.1 7.9-7.2 9.4-4.1-1.5-7.2-4.6-7.2-9.4V5.4z"/><path d="M8.6 11.6l2.4 2.4 4.4-4.6"/>',
+  Folder: '<path d="M3 5.5h6.2l2 2.5H21v11H3z"/>',
+  Dot: '<path d="M12 7l5 5-5 5-5-5z"/>'
 };
-const ICON_FOR = {User:"User", Group:"Group", Computer:"Computer", Workstation:"Computer", Server:"Server", DomainController:"Crown", Domain:"Crown", CertTemplate:"Cert", CA:"Cert", GPO:"Doc", OU:"Doc", Container:"Doc", Configuration:"Doc", BuiltinDomain:"Doc"};
+const ICON_FOR = {User:"User", Group:"Group", Computer:"Computer", Workstation:"Computer", Server:"Server", DomainController:"Dc", Domain:"Dc", CertTemplate:"Cert", CA:"Cert", GPO:"Folder", OU:"Folder", Container:"Folder", Configuration:"Folder", BuiltinDomain:"Folder"};
 function iconSvg(n, px) {
   const body = ICONS[ICON_FOR[n.type] || "Dot"];
   const half = px / 2;
   return '<svg class="sym-svg" x="-' + half + '" y="-' + half + '" width="' + px + '" height="' + px +
-    '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + body + "</svg>";
+    '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter">' + body + "</svg>";
 }
 const noiseClass = s => (Number(s) <= 2 ? "low" : Number(s) === 3 ? "med" : "high");
 const noiseName = s => t("noise_" + noiseClass(s));
@@ -713,7 +713,7 @@ function renderStrip(p) {
   const y = 82;
   nodes.forEach((n, i) => {
     const x = 140 + i * 225;
-    const full = S.nodeMap.get(String(n.id)) || {};
+    const full = S.nodeMap.get(String(n.id)) || {id: n.id, name: n.name, type: n.type};
     const col = color(full);
     if (i < steps.length) {
       const st = steps[i];
