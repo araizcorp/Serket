@@ -32,6 +32,9 @@ const I18N = {
     legal_go: "Entrar",
     legend_user: "Usuario", legend_group: "Grupo", legend_computer: "Equipo",
     legend_dc: "DC/Dominio", legend_owned: "Mía",
+    legend_controls: "controla", legend_controlled: "le controlan",
+    sec_controls: "Controla", sec_controlled: "Lo controlan",
+    no_relations: "sin relaciones",
     lang_button: "EN",
     explore: "Explorar", route: "Ruta", one_more_hop: "+1 salto", one_less_hop: "−1 salto",
     rel_count: "relaciones"
@@ -62,6 +65,9 @@ const I18N = {
     legal_go: "Enter",
     legend_user: "User", legend_group: "Group", legend_computer: "Computer",
     legend_dc: "DC/Domain", legend_owned: "Owned",
+    legend_controls: "controls", legend_controlled: "controlled by",
+    sec_controls: "Controls", sec_controlled: "Controlled by",
+    no_relations: "no relations",
     lang_button: "ES",
     explore: "Explore", route: "Path", one_more_hop: "+1 hop", one_less_hop: "−1 hop",
     rel_count: "relationships"
@@ -152,7 +158,9 @@ function renderLegend() {
     '<span><i style="background:var(--group)"></i>' + esc(t("legend_group")) + "</span>" +
     '<span><i style="background:var(--computer)"></i>' + esc(t("legend_computer")) + "</span>" +
     '<span><i style="background:var(--dc)"></i>' + esc(t("legend_dc")) + "</span>" +
-    '<span><i style="background:var(--accent)"></i>' + esc(t("legend_owned")) + "</span>";
+    '<span><i style="background:var(--accent)"></i>' + esc(t("legend_owned")) + "</span>" +
+    '<span><i class="li-line"></i>' + esc(t("legend_controls")) + "</span>" +
+    '<span><i class="li-line dash"></i>' + esc(t("legend_controlled")) + "</span>";
 }
 
 /* ── data ─────────────────────────────────────────────────────────────── */
@@ -174,12 +182,19 @@ async function init() {
 
 /* ── graph: dos modos legibles ────────────────────────────────────────── */
 
-/* Aristas en DIRECCIÓN de ataque: solo salientes (foco → lo que controla).
-   Las entrantes (quién me controla) son ruido para el operador. */
-function edgesOf(id) {
+/* Aristas en ambas direcciones: salientes (foco → controla) y entrantes
+   (lo controlan). Se distinguen visualmente: sólida vs punteada. */
+function edgesOut(id) {
   const out = [];
   for (const e of S.edges) {
     if (eid(e.source) === id) out.push({other: eid(e.target), edge: e});
+  }
+  return out;
+}
+function edgesIn(id) {
+  const out = [];
+  for (const e of S.edges) {
+    if (eid(e.target) === id) out.push({other: eid(e.source), edge: e});
   }
   return out;
 }
@@ -190,45 +205,60 @@ function focusNode(id, announce = true) {
   S.mode = "neighbors";
   updateScopeButtons();
   renderGraph();
-  if (announce) toast(t("toast_focus") + ": " + nodeName(id));
+  if (announce) {
+    const rel = edgesOut(S.focus).length + edgesIn(S.focus).length;
+    toast(t("toast_focus") + ": " + nodeName(id) + (rel ? "" : " · " + t("no_relations")));
+  }
 }
 
-/* Explorar: estrella legible — foco a la izquierda, vecinos en cuadrícula,
-   SOLO aristas foco↔vecino, cada una con su etiqueta. */
+/* Explorar: foco a la izquierda; a la derecha lo que CONTROLAS (aristas
+   sólidas) y, más a la derecha en columna punteada, QUIÉN TE CONTROLA.
+   Ambos sentidos son relevantes: una cuenta nueva suele tener todo el
+   interés en entrante (quién tiene GenericAll sobre ella). */
 function stageSize() {
   const r = $("graph").getBoundingClientRect();
   return {w: Math.max(320, r.width || 1280), h: Math.max(360, r.height || 800)};
 }
 
+const OUT_CAP = 16, IN_CAP = 8;
+
 function neighborScope(w, h) {
-  const cap = 24;
-  const scored = edgesOf(S.focus).map(({edge}) => ({
-    id: eid(edge.source) === S.focus ? eid(edge.target) : eid(edge.source),
-    type: edge.type || t("relation"),
-    prio: PRIO.has(edge.type) ? 0 : 1,
-    opsec: Number(edge.opsec_score || 5)
-  }));
-  scored.sort((a, b) => a.prio - b.prio || a.opsec - b.opsec || nodeName(a.id).localeCompare(nodeName(b.id)));
-  const seen = new Set([S.focus]);
-  const ids = [S.focus];
-  for (const item of scored) {
-    if (ids.length >= cap + 1) break;
-    if (seen.has(item.id)) continue;
-    seen.add(item.id);
-    ids.push(item.id);
-  }
+  const mk = (list, dir) => {
+    const seen = new Map();
+    for (const {other, edge} of list) {
+      const prio = PRIO.has(edge.type) ? 0 : 1;
+      const opsec = Number(edge.opsec_score || 5);
+      const cur = seen.get(other);
+      if (!cur || prio < cur.prio || (prio === cur.prio && opsec < cur.opsec))
+        seen.set(other, {id: other, dir, prio, opsec});
+    }
+    return Array.from(seen.values())
+      .sort((a, b) => a.prio - b.prio || a.opsec - b.opsec || nodeName(a.id).localeCompare(nodeName(b.id)));
+  };
+  const outs = mk(edgesOut(S.focus), "out").slice(0, OUT_CAP);
+  const ins = mk(edgesIn(S.focus), "in").slice(0, IN_CAP);
+
   const pos = new Map();
-  pos.set(S.focus, {x: Math.round(w * 0.16), y: Math.round(h / 2)});
-  const ROWS = Math.max(3, Math.min(8, Math.floor((h - 140) / 105)));
-  const colW = Math.max(240, Math.min(320, (w * 0.55) / Math.max(1, Math.ceil((ids.length - 1) / ROWS))));
-  ids.slice(1).forEach((id, i) => {
-    const c = Math.floor(i / ROWS);
-    const r = i % ROWS;
-    const colCount = Math.min(ROWS, ids.length - 1 - c * ROWS);
+  pos.set(S.focus, {x: Math.round(w * 0.13), y: Math.round(h / 2)});
+
+  const ROWS = Math.max(3, Math.min(8, Math.floor((h - 160) / 105)));
+  const outCols = Math.max(1, Math.ceil(outs.length / ROWS));
+  const outEnd = ins.length ? w * 0.76 : w * 0.9;
+  const outW = outs.length ? Math.max(200, Math.min(300, (outEnd - w * 0.36) / outCols)) : 0;
+  outs.forEach((it, i) => {
+    const c = Math.floor(i / ROWS), r = i % ROWS;
+    const colCount = Math.min(ROWS, outs.length - c * ROWS);
     const gap = Math.min(108, (h - 160) / Math.max(1, colCount));
-    pos.set(id, {x: Math.round(w * 0.42) + c * colW, y: Math.round(h / 2 - ((colCount - 1) * gap) / 2 + r * gap)});
+    pos.set(it.id, {x: Math.round(w * 0.36) + c * outW, y: Math.round(h / 2 - ((colCount - 1) * gap) / 2 + r * gap)});
   });
-  return {ids: new Set(ids), pos, star: true};
+
+  const iGap = Math.min(104, (h - 160) / Math.max(1, ins.length));
+  ins.forEach((it, i) => {
+    pos.set(it.id, {x: Math.round(w * 0.86), y: Math.round(h / 2 - ((ins.length - 1) * iGap) / 2 + i * iGap)});
+  });
+
+  const ids = new Set([S.focus, ...outs.map(o => o.id), ...ins.map(x => x.id)]);
+  return {ids, pos, star: true, nOut: outs.length, nIn: ins.length};
 }
 
 const _nbCache = new Map();
@@ -256,8 +286,9 @@ function aggregateEdges(ids, star) {
     if (!ids.has(s) || !ids.has(tg) || s === tg) continue;
     if (star && s !== S.focus && tg !== S.focus) continue;
     const key = s < tg ? s + "|" + tg : tg + "|" + s;
-    if (!map.has(key)) map.set(key, {a: s < tg ? s : tg, b: s < tg ? tg : s, types: [], best: e, count: 0});
+    if (!map.has(key)) map.set(key, {a: s < tg ? s : tg, b: s < tg ? tg : s, types: [], best: e, count: 0, hasOut: false, hasIn: false});
     const agg = map.get(key);
+    if (star) { if (s === S.focus) agg.hasOut = true; else agg.hasIn = true; }
     agg.count += 1;
     agg.types.push(e.type || t("relation"));
     if (Number(e.opsec_score || 5) < Number(agg.best.opsec_score || 5)) agg.best = e;
@@ -289,9 +320,17 @@ function renderGraph() {
       ? "M" + (a.x + 22) + "," + a.y + " L" + (b.x - 22) + "," + b.y
       : "M" + a.x + "," + a.y + " C" + (a.x + bend) + "," + a.y + " " + (b.x - bend) + "," + b.y + " " + b.x + "," + b.y;
     const label = agg.types[0] + (agg.count > 1 ? " ×" + agg.count : "");
-    html += '<path d="' + d + '" fill="none" stroke="' + (on ? "#2ee6a8" : "#3d4c74") + '" stroke-width="' + (on ? 3 : 1.6) +
-      '" marker-end="url(#arr)" opacity="' + (on ? 1 : 0.75) + '"><title>' + esc(agg.types.join(", ")) + '</title></path>' +
-      '<text x="' + midX + '" y="' + midY + '" text-anchor="middle" font-size="10.5" fill="#aab8d6" class="edge-lbl">' + esc(label) + "</text>";
+    const inOnly = Boolean(scope.star) && agg.hasIn && !agg.hasOut;
+    const stroke = inOnly ? "#5b6884" : (on ? "#2ee6a8" : "#54648c");
+    const dash = inOnly ? ' stroke-dasharray="6 5"' : "";
+    html += '<path d="' + d + '" fill="none"' + dash + ' stroke="' + stroke + '" stroke-width="' + (on ? 3 : (inOnly ? 1.3 : 1.8)) +
+      '" marker-end="url(#arr)" opacity="' + (on ? 1 : (inOnly ? 0.65 : 0.85)) + '"><title>' + esc(agg.types.join(", ")) + '</title></path>' +
+      '<text x="' + midX + '" y="' + midY + '" text-anchor="middle" font-size="10.5" fill="' + (inOnly ? "#8b98b4" : "#aab8d6") + '" class="edge-lbl"' + (inOnly ? ' opacity="0.8"' : "") + '>' + esc(label) + "</text>";
+  }
+  if (scope.star) {
+    const cap = s => '<text font-size="10" font-weight="700" letter-spacing="2.5" fill="#5b6884" class="edge-lbl">' + esc(s.toUpperCase()) + "</text>";
+    if (scope.nOut) html += cap(t("sec_controls")).replace("<text", '<text x="' + Math.round(w * 0.36) + '" y="30"');
+    if (scope.nIn) html += cap(t("sec_controlled") + " · " + scope.nIn).replace("<text", '<text x="' + Math.round(w * 0.86) + '" y="30" text-anchor="middle"');
   }
   html += '</g><g class="nodes">';
   ids.forEach(id => {
