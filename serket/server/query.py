@@ -110,42 +110,57 @@ def install_query_route(app, data: dict[str, Any]) -> None:
 
     @app.post("/api/query-paths")
     async def query_paths(payload: dict[str, Any] = Body(default_factory=dict)):
-        source = str(payload.get("source") or "")
+        raw_sources = payload.get("sources")
+        explicit_list = isinstance(raw_sources, list) and bool(raw_sources)
+        if explicit_list:
+            sources = [str(item) for item in raw_sources if str(item or "").strip()]
+        else:
+            sources = [str(payload.get("source") or "")]
         target = str(payload.get("target") or "tier0")
         include_edge = str(payload.get("include_edge") or "all")
         max_hops_raw = payload.get("max_hops")
         max_hops = None if max_hops_raw in (None, "", "all") else int(max_hops_raw)
         limit = max(1, min(int(payload.get("limit") or 25), 50))
 
-        if not source or source == "all":
+        sources = [item for item in dict.fromkeys(sources) if item and item != "all"]
+        if not sources:
             raise HTTPException(status_code=400, detail="A concrete source node is required")
-        if source not in graph:
+        # Legacy single-source contract: an unknown node is a client error (404).
+        # Explicit multi-source lists tolerate absent nodes and report them instead.
+        if not explicit_list and sources[0] not in graph:
             raise HTTPException(status_code=404, detail="Source node is not present in the loaded graph")
 
         targets = high_value if target in {"tier0", "all", ""} else {target}
         candidates: list[dict[str, Any]] = []
-        for candidate in targets:
-            if candidate == source or candidate not in graph:
+        missing: list[str] = []
+        for source in sources:
+            if source not in graph:
+                missing.append(source)
                 continue
-            try:
-                nodes = nx.shortest_path(
-                    graph, source=source, target=candidate, weight="opsec_score"
-                )
-            except (nx.NetworkXNoPath, nx.NodeNotFound):
-                continue
-            if max_hops is not None and len(nodes) - 1 > max_hops:
-                continue
-            result = _path_result(graph, nodes)
-            if include_edge != "all" and not any(
-                step.get("edge_type") == include_edge for step in result["steps"]
-            ):
-                continue
-            candidates.append(result)
+            for candidate in targets:
+                if candidate == source or candidate not in graph:
+                    continue
+                try:
+                    nodes = nx.shortest_path(
+                        graph, source=source, target=candidate, weight="opsec_score"
+                    )
+                except (nx.NetworkXNoPath, nx.NodeNotFound):
+                    continue
+                if max_hops is not None and len(nodes) - 1 > max_hops:
+                    continue
+                result = _path_result(graph, nodes)
+                if include_edge != "all" and not any(
+                    step.get("edge_type") == include_edge for step in result["steps"]
+                ):
+                    continue
+                candidates.append(result)
 
         candidates.sort(key=lambda item: (item["hops"], item["cost"], item["target_name"]))
         return {
             "paths": candidates[:limit],
-            "source": source,
+            "source": sources[0] if len(sources) == 1 else sources,
+            "sources_queried": sources,
+            "sources_missing": missing,
             "target": target,
             "algorithm": "lowest-cost path over traversable loaded relationships",
             "queried_directory": False,

@@ -39,6 +39,36 @@ class QueryTests(unittest.TestCase):
             asyncio.run(type(self).endpoint({"source": "missing"}))
         self.assertEqual(context.exception.status_code, 404)
 
+    def test_multi_source_queries_merge_and_report_missing(self):
+        body = asyncio.run(
+            type(self).endpoint(
+                {
+                    "sources": [
+                        "S-1-5-21-42424242-51515151-61616161-1101",
+                        "S-1-5-21-42424242-51515151-61616161-1102",
+                        "missing-node",
+                    ],
+                    "target": "tier0",
+                }
+            )
+        )
+        self.assertFalse(body["queried_directory"])
+        self.assertEqual(body["sources_missing"], ["missing-node"])
+        self.assertGreaterEqual(len(body["paths"]), 2)
+        starts = {str(path["src"]) for path in body["paths"]}
+        self.assertEqual(
+            starts,
+            {
+                "S-1-5-21-42424242-51515151-61616161-1101",
+                "S-1-5-21-42424242-51515151-61616161-1102",
+            },
+        )
+
+    def test_multi_source_empty_list_is_a_bad_request(self):
+        with self.assertRaises(HTTPException) as context:
+            asyncio.run(type(self).endpoint({"sources": []}))
+        self.assertEqual(context.exception.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

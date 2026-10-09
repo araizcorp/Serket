@@ -1,11 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_data_files
 from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all
 
 datas = []
 hiddenimports = ['Crypto.Hash.MD4', 'jaraco', 'jaraco.text', 'jaraco.context', 'jaraco.functools', 'more_itertools']
 datas += collect_data_files('serket')
 hiddenimports += collect_submodules('serket')
+
+# Optional native window (--gui): pywebview + pythonnet WebView2 backend.
+try:
+    webview_datas, webview_binaries, webview_hidden = collect_all('webview')
+    datas += webview_datas
+    hiddenimports += webview_hidden + ['webview.platforms.winforms', 'clr', 'clr_loader']
+except Exception:
+    pass
 
 
 a = Analysis(
