@@ -34,6 +34,7 @@ const I18N = {
     legend_dc: "DC/Dominio", legend_owned: "Mía",
     legend_controls: "controla", legend_controlled: "le controlan",
     sec_controls: "Controla", sec_controlled: "Lo controlan",
+    sec_default_acl: "ACEs por defecto",
     no_relations: "sin relaciones",
     lang_button: "EN",
     explore: "Explorar", route: "Ruta", one_more_hop: "+1 salto", one_less_hop: "−1 salto",
@@ -67,6 +68,7 @@ const I18N = {
     legend_dc: "DC/Domain", legend_owned: "Owned",
     legend_controls: "controls", legend_controlled: "controlled by",
     sec_controls: "Controls", sec_controlled: "Controlled by",
+    sec_default_acl: "default ACEs",
     no_relations: "no relations",
     lang_button: "ES",
     explore: "Explore", route: "Path", one_more_hop: "+1 hop", one_less_hop: "−1 hop",
@@ -211,10 +213,25 @@ function focusNode(id, announce = true) {
   }
 }
 
+/* Grupos protegidos por defecto: tienen ACL sobre TODOS los objetos del
+   dominio. Mostrarlos en cada nodo es ruido (Domain Admins controla todo),
+   así que en «Lo controlan» se ocultan salvo que no quede otra cosa. */
+const DEFAULT_CTRL = new Set([
+  "administrators", "domain admins", "enterprise admins", "system", "account operators",
+  "cert publishers", "terminal server license servers", "creator owner", "self",
+  "backup operators", "print operators", "everyone", "authenticated users",
+  "anonymous logon", "pre-windows 2000 compatible access", "windows authorization access group",
+  "domain controllers", "schema admins", "group policy creators owners"
+]);
+const isDefaultCtrl = id => {
+  const n = S.nodeMap.get(String(id));
+  const nm = String(n && n.name || "").trim().toLowerCase();
+  return DEFAULT_CTRL.has(nm) || /^s-1-5-32-54[49]$/.test(nm) || nm === "s-1-5-18" || nm === "s-1-5-32-544";
+};
+
 /* Explorar: foco a la izquierda; a la derecha lo que CONTROLAS (aristas
-   sólidas) y, más a la derecha en columna punteada, QUIÉN TE CONTROLA.
-   Ambos sentidos son relevantes: una cuenta nueva suele tener todo el
-   interés en entrante (quién tiene GenericAll sobre ella). */
+   sólidas) y, más a la derecha en columna punteada, QUIÉN TE CONTROLA
+   (filtrando los ACEs por defecto, que están en todos los objetos). */
 function stageSize() {
   const r = $("graph").getBoundingClientRect();
   return {w: Math.max(320, r.width || 1280), h: Math.max(360, r.height || 800)};
@@ -236,7 +253,10 @@ function neighborScope(w, h) {
       .sort((a, b) => a.prio - b.prio || a.opsec - b.opsec || nodeName(a.id).localeCompare(nodeName(b.id)));
   };
   const outs = mk(edgesOut(S.focus), "out").slice(0, OUT_CAP);
-  const ins = mk(edgesIn(S.focus), "in").slice(0, IN_CAP);
+  const allIns = mk(edgesIn(S.focus), "in");
+  let ins = allIns.filter(x => !isDefaultCtrl(x.id)).slice(0, IN_CAP);
+  let nInHidden = allIns.length - ins.length;
+  if (!ins.length) { ins = allIns.slice(0, IN_CAP); nInHidden = 0; } // todo era por defecto: mejor mostrarlo
 
   const pos = new Map();
   pos.set(S.focus, {x: Math.round(w * 0.13), y: Math.round(h / 2)});
@@ -258,7 +278,7 @@ function neighborScope(w, h) {
   });
 
   const ids = new Set([S.focus, ...outs.map(o => o.id), ...ins.map(x => x.id)]);
-  return {ids, pos, star: true, nOut: outs.length, nIn: ins.length};
+  return {ids, pos, star: true, nOut: outs.length, nIn: ins.length, nInHidden};
 }
 
 const _nbCache = new Map();
@@ -321,16 +341,20 @@ function renderGraph() {
       : "M" + a.x + "," + a.y + " C" + (a.x + bend) + "," + a.y + " " + (b.x - bend) + "," + b.y + " " + b.x + "," + b.y;
     const label = agg.types[0] + (agg.count > 1 ? " ×" + agg.count : "");
     const inOnly = Boolean(scope.star) && agg.hasIn && !agg.hasOut;
-    const stroke = inOnly ? "#5b6884" : (on ? "#2ee6a8" : "#54648c");
+    const stroke = inOnly ? "#56637f" : (on ? "#2fd9a1" : "#3f4c6b");
     const dash = inOnly ? ' stroke-dasharray="6 5"' : "";
-    html += '<path d="' + d + '" fill="none"' + dash + ' stroke="' + stroke + '" stroke-width="' + (on ? 3 : (inOnly ? 1.3 : 1.8)) +
-      '" marker-end="url(#arr)" opacity="' + (on ? 1 : (inOnly ? 0.65 : 0.85)) + '"><title>' + esc(agg.types.join(", ")) + '</title></path>' +
-      '<text x="' + midX + '" y="' + midY + '" text-anchor="middle" font-size="10.5" fill="' + (inOnly ? "#8b98b4" : "#aab8d6") + '" class="edge-lbl"' + (inOnly ? ' opacity="0.8"' : "") + '>' + esc(label) + "</text>";
+    const marker = on ? "#arr-on" : (inOnly ? "#arr-in" : "#arr");
+    html += '<path d="' + d + '" fill="none"' + dash + ' stroke="' + stroke + '" stroke-width="' + (on ? 2.6 : (inOnly ? 1.3 : 1.7)) +
+      '" marker-end="url(' + marker + ')" opacity="' + (on ? 1 : (inOnly ? 0.6 : 0.85)) + '"><title>' + esc(agg.types.join(", ")) + '</title></path>';
+    /* etiqueta con pastilla de fondo para que se lea siempre */
+    const tw = label.length * 5.9 + 10;
+    html += '<rect x="' + (midX - tw / 2) + '" y="' + (midY - 8.5) + '" width="' + tw + '" height="13" rx="6.5" fill="rgba(5,8,14,.82)" stroke="' + (inOnly ? "rgba(86,99,127,.35)" : "rgba(63,76,107,.4)") + '" stroke-width="0.7"></rect>' +
+      '<text x="' + midX + '" y="' + (midY + 2.5) + '" text-anchor="middle" font-size="10" fill="' + (inOnly ? "#9aa6c0" : "#bcc8e2") + '" class="edge-lbl">' + esc(label) + "</text>";
   }
   if (scope.star) {
-    const cap = s => '<text font-size="10" font-weight="700" letter-spacing="2.5" fill="#5b6884" class="edge-lbl">' + esc(s.toUpperCase()) + "</text>";
-    if (scope.nOut) html += cap(t("sec_controls")).replace("<text", '<text x="' + Math.round(w * 0.36) + '" y="30"');
-    if (scope.nIn) html += cap(t("sec_controlled") + " · " + scope.nIn).replace("<text", '<text x="' + Math.round(w * 0.86) + '" y="30" text-anchor="middle"');
+    const cap = (s, x, anchor) => '<text x="' + x + '" y="30"' + (anchor ? ' text-anchor="' + anchor + '"' : "") + ' font-size="9.5" font-weight="700" letter-spacing="2.5" fill="#5d6b88" class="edge-lbl">' + esc(s.toUpperCase()) + "</text>";
+    if (scope.nOut) html += cap(t("sec_controls"), Math.round(w * 0.36), "");
+    if (scope.nIn) html += cap(t("sec_controlled") + " · " + scope.nIn + (scope.nInHidden ? "  (+" + scope.nInHidden + " " + t("sec_default_acl") + ")" : ""), Math.round(w * 0.86), "middle");
   }
   html += '</g><g class="nodes">';
   ids.forEach(id => {
@@ -345,7 +369,8 @@ function renderGraph() {
     const col = color(n);
     const lbl = String(n.name || id);
     html += '<g class="' + cls + '" data-id="' + esc(id) + '" transform="translate(' + p.x + ' ' + p.y + ')">' +
-      '<circle r="25" class="halo"></circle><circle r="17" class="body" style="stroke:' + col + '"></circle>' +
+      '<circle r="25" class="halo"></circle><circle r="21" class="glow" style="stroke:' + col + '"></circle>' +
+      '<circle r="17" class="body" style="stroke:' + col + '"></circle>' +
       '<g class="sym" style="color:' + col + '">' + iconSvg(n, 17) + "</g>" +
       '<text class="lbl" y="41">' + esc(lbl.length > 26 ? lbl.slice(0, 24) + "…" : lbl) + "</text>" +
       (S.owned.has(id) ? '<circle class="own" cx="14" cy="-14" r="7"><title>' + esc(t("owned_badge")) + '</title></circle>' : "") +
