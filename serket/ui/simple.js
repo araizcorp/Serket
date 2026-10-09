@@ -125,7 +125,7 @@ const persistOwned = () => localStorage.setItem("serket.owned.v1", JSON.stringif
 const nodeName = id => { const n = S.nodeMap.get(String(id)); return n ? String(n.name || n.id) : String(id); };
 
 /* Relaciones "de privilegio": se muestran primero al explorar. */
-const PRIO = new Set(["MemberOf","GenericAll","GenericWrite","WriteDACL","WriteOwner","AllExtendedRights","Owns","AdminTo","CanRDP","CanPSRemote","ForceChangePassword","AddMember","AddSelf","AddKeyCredentialLink","AddAllowedToAct","Contains","GPLink","TrustedBy","DumpSMSAPassword"]);
+const PRIO = new Set(["MemberOf","GenericAll","GenericWrite","WriteDACL","WriteOwner","AllExtendedRights","Owns","AdminTo","CanRDP","CanPSRemote","ForceChangePassword","AddMember","AddSelf","AddKeyCredentialLink","AddAllowedToAct","Contains","GPLink","TrustedBy","DumpSMSAPassword","ReadLAPSPassword","ReadGMSAPassword","DCSync"]);
 
 let toastTimer = null;
 function toast(msg) {

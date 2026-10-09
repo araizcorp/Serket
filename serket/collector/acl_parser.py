@@ -75,6 +75,8 @@ MITRE = {
     "GenericWrite":        {"id": "T1098",     "name": "Account Manipulation"},
     "AddSelf":             {"id": "T1098",     "name": "Account Manipulation"},
     "Owns":                {"id": "T1222.001", "name": "Windows File & Directory Permissions Modification"},
+    "ReadLAPSPassword":    {"id": "T1003.001", "name": "OS Credential Dumping: LSA Secrets"},
+    "ReadGMSAPassword":    {"id": "T1003.001", "name": "OS Credential Dumping: LSA Secrets"},
 }
 
 # ── Well-known SID resolution ─────────────────────────────────────────────────
@@ -181,7 +183,8 @@ def format_guid(raw: bytes) -> str:
 
 # ── ACE parsing ───────────────────────────────────────────────────────────────
 
-def _classify_ace(mask: int, obj_guid: Optional[str]) -> Optional[str]:
+def _classify_ace(mask: int, obj_guid: Optional[str],
+                  schema_names: Optional[dict[str, str]] = None) -> Optional[str]:
     """
     Map an (access mask, optional object GUID) pair to a named edge type,
     or None if the ACE represents no attack-relevant permission.
@@ -213,6 +216,14 @@ def _classify_ace(mask: int, obj_guid: Optional[str]) -> Optional[str]:
             return "ApplyGroupPolicy"
         if right == "GetChanges":
             return None        # read-only sync, not DCSync by itself
+        # LAPS / gMSA: Control Access on the password attribute. Legacy LAPS
+        # (ms-Mcs-AdmPwd) GUIDs are forest-specific, so they are resolved
+        # dynamically from the schema by the collector (schema_names).
+        schema_name = (schema_names or {}).get(obj_guid)
+        if schema_name in {"ms-Mcs-AdmPwd", "ms-LAPS-Password"}:
+            return "ReadLAPSPassword"
+        if schema_name == "ms-DS-ManagedPassword":
+            return "ReadGMSAPassword"
         return "AllExtendedRights"
 
     # Write to a specific property
@@ -241,7 +252,8 @@ def _classify_ace(mask: int, obj_guid: Optional[str]) -> Optional[str]:
 
 # ── Security Descriptor parser ────────────────────────────────────────────────
 
-def parse_security_descriptor(raw_sd: bytes) -> list[dict]:
+def parse_security_descriptor(raw_sd: bytes,
+                              schema_names: Optional[dict[str, str]] = None) -> list[dict]:
     """
     Parse a Windows SECURITY_DESCRIPTOR and return a list of ACE dicts:
     {
@@ -333,7 +345,7 @@ def parse_security_descriptor(raw_sd: bytes) -> list[dict]:
                 continue
             mask       = struct.unpack_from("<I", ace_body, 0)[0]
             sid        = parse_sid(ace_body[4:])
-            edge_type  = _classify_ace(mask, None)
+            edge_type  = _classify_ace(mask, None, schema_names)
 
             if edge_type and sid:
                 results.append({
@@ -369,7 +381,7 @@ def parse_security_descriptor(raw_sd: bytes) -> list[dict]:
                 cursor += 16        # skip inherited type
 
             sid       = parse_sid(ace_body[cursor:])
-            edge_type = _classify_ace(mask, object_guid)
+            edge_type = _classify_ace(mask, object_guid, schema_names)
 
             if edge_type and sid:
                 results.append({

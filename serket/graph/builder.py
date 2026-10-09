@@ -66,6 +66,8 @@ EDGE_OPSEC: dict[str, tuple[int, str]] = {
     "GetChanges":              (5,  "medium"),
     "GetChangesAll":           (5,  "medium"),
     "GetChangesInFilteredSet": (5,  "medium"),
+    "ReadLAPSPassword":        (2,  "low"),
+    "ReadGMSAPassword":        (2,  "low"),
 }
 
 MITRE_MAP = {
@@ -100,6 +102,8 @@ MITRE_MAP = {
     "RODCCachedCredential":     {"id": "T1003", "name": "OS Credential Dumping"},
     "PreWindows2000Access":     {"id": "T1087.002", "name": "Account Discovery: Domain Account"},
     "Owns":                    {"id": "T1222.001", "name": "Windows File & Directory Permissions Modification"},
+    "ReadLAPSPassword":        {"id": "T1003.001", "name": "OS Credential Dumping: LSA Secrets"},
+    "ReadGMSAPassword":        {"id": "T1003.001", "name": "OS Credential Dumping: LSA Secrets"},
 }
 
 # Groups whose SID suffix indicates a high-value target

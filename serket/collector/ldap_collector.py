@@ -13,10 +13,11 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 import struct
 import time
+import random
 from typing import Optional
 
 from ldap3 import (
-    ALL, KERBEROS, NTLM, SIMPLE, SUBTREE, BASE,
+    ALL, KERBEROS, NTLM, SASL, SIMPLE, SUBTREE, BASE,
     Connection, Server,
 )
 from ldap3.core.exceptions import LDAPBindError, LDAPException
@@ -413,8 +414,10 @@ class LDAPCollector:
         password:   Optional[str] = None,
         hashes:     Optional[str] = None,
         kerberos:   bool = False,
+        simple_auth: bool = False,
         use_ldaps:  bool = False,
         rate_limit: float = 0.08,
+        jitter: float = 0.5,
     ):
         self.dc_host    = dc_host
         self.domain     = domain
@@ -422,8 +425,10 @@ class LDAPCollector:
         self.password   = password
         self.hashes     = hashes
         self.kerberos   = kerberos
+        self.simple_auth = simple_auth
         self.use_ldaps  = use_ldaps
         self.rate_limit = rate_limit
+        self.jitter = max(0.0, min(1.0, jitter))
 
         self.conn:      Optional[Connection] = None
         self.base_dn:   str = ""
@@ -434,7 +439,11 @@ class LDAPCollector:
         self._telemetry = {
             "profile": "low-impact",
             "transport": "LDAPS" if use_ldaps else "LDAP",
+            "auth": ("kerberos" if kerberos
+                     else "simple" if simple_auth
+                     else "ntlm-hash" if hashes else "ntlm"),
             "rate_limit_ms": round(rate_limit * 1000, 2),
+        "jitter_pct": round(self.jitter * 100),
             "page_size": 500,
             "searches": 0,
             "pages": 0,
@@ -464,9 +473,26 @@ class LDAPCollector:
         connection_options = {"check_names": False, "auto_bind": True}
 
         if self.kerberos:
+            # ldap3 only accepts SIMPLE / ANONYMOUS / SASL / NTLM as the
+            # authentication parameter; Kerberos is SASL with the GSSAPI
+            # mechanism, driven by the KRB5CCNAME credential cache.
             self.conn = Connection(
                 server,
-                authentication=KERBEROS,
+                authentication=SASL,
+                sasl_mechanism="GSSAPI",
+                **connection_options,
+            )
+        elif self.simple_auth:
+            # Emergency compatibility mode: some LDAP servers (notably Samba
+            # AD DCs) terminate ldap3's Sicily/NTLMSSP exchange mid-handshake.
+            # A SIMPLE bind with a UPN works there. It is opt-in via
+            # --auth simple because it changes the operator's telemetry
+            # signature: the DC logs a plain "simple bind", not NTLM.
+            self.conn = Connection(
+                server,
+                user=f"{self.username}@{self.domain}",
+                password=self.password or "",
+                authentication=SIMPLE,
                 **connection_options,
             )
         elif self.hashes:
@@ -560,7 +586,7 @@ class LDAPCollector:
         stage["searches"] += 1
 
         while True:
-            time.sleep(self.rate_limit)
+            time.sleep(self.rate_limit * (1 - self.jitter + 2 * self.jitter * random.random()))
             self._telemetry["pages"] += 1
             stage["pages"] += 1
             self.conn.search(
@@ -1118,6 +1144,44 @@ class LDAPCollector:
             return f"GUID:{guid}"
         return self._dn_map.get(entry.get("dn", "").lower(), "")
 
+    def collect_schema_names(self) -> dict[str, str]:
+        """Resolve GUIDs of password-bearing attributes from the schema.
+
+        Legacy LAPS (ms-Mcs-AdmPwd) schema GUIDs are generated per forest, so
+        they cannot be hardcoded; we ask the schema partition directly.
+        Falls back to the well-known defaults when the query is unavailable.
+        """
+        wanted = {"ms-Mcs-AdmPwd", "ms-LAPS-Password", "ms-DS-ManagedPassword"}
+        fallback = {
+            "e362ed86-b728-0842-b27d-2dea7a9df218": "ms-DS-ManagedPassword",
+        }
+        try:
+            entries = self._search(
+                f"CN=Schema,CN=Configuration,{self.base_dn}",
+                "(|(lDAPDisplayName=ms-Mcs-AdmPwd)(lDAPDisplayName=ms-LAPS-Password)"
+                "(lDAPDisplayName=ms-DS-ManagedPassword))",
+                ["lDAPDisplayName", "schemaIDGUID"],
+                SUBTREE,
+            )
+        except LDAPException:
+            return dict(fallback)
+        names: dict[str, str] = {}
+        for entry in entries:
+            attrs = entry["attributes"]
+            name = _str(attrs.get("lDAPDisplayName"))
+            if name not in wanted:
+                continue
+            raw = _raw_first(entry, "schemaIDGUID")
+            if isinstance(raw, (bytes, bytearray)):
+                guid = format_guid(bytes(raw))
+            else:
+                guid = ""
+            if guid:
+                names[guid] = name
+        for guid, name in fallback.items():
+            names.setdefault(guid, name)
+        return names
+
     def collect_acls(self) -> list[dict]:
         """Collect DACLs across AD structure objects, not only protected ones."""
         sd_ctrl = security_descriptor_control(sdflags=0x05)
@@ -1134,6 +1198,7 @@ class LDAPCollector:
         all_aces: list[dict] = []
         seen: set[tuple] = set()
         replication_rights: dict[tuple[str, str], set[str]] = {}
+        schema_names = self.collect_schema_names()
 
         for entry in entries:
             raw_sd = _raw_first(entry, "nTSecurityDescriptor")
@@ -1156,7 +1221,7 @@ class LDAPCollector:
                 ):
                     self._adminsdholder_dacl_fingerprint = fingerprint
 
-            for ace in parse_security_descriptor(bytes(raw_sd)):
+            for ace in parse_security_descriptor(bytes(raw_sd), schema_names):
                 key = (
                     ace.get("sid"), target_id, ace.get("edge_type"),
                     ace.get("object_guid"), ace.get("ace_flags"),
