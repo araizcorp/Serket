@@ -163,8 +163,14 @@
       filter: drop-shadow(0 3px 6px rgba(0,0,0,.55));
       transition: stroke-width .12s;
     }
+    .gnode.t-user .body { fill: rgba(56,189,248,.16); }
+    .gnode.t-group .body { fill: rgba(242,181,68,.15); }
+    .gnode.t-computer .body { fill: rgba(167,139,250,.15); }
+    .gnode.t-dc .body { fill: rgba(251,146,60,.16); }
+    .gnode.t-cert .body { fill: rgba(94,234,212,.14); }
+    .gnode.t-obj .body { fill: rgba(148,163,184,.13); }
     .gnode:hover .body { stroke-width: 3.4; }
-    .gnode .sym { font-size: 12.5px; font-weight: 800; pointer-events: none; }
+    .gnode .sym { pointer-events: none; opacity: .95; }
     .gnode .lbl {
       font-size: 11px; font-weight: 600; fill: #dbe4f3; text-anchor: middle;
       paint-order: stroke; stroke: rgba(5,7,11,.92); stroke-width: 3.5px;
@@ -200,6 +206,12 @@
     .stepdetail { color: var(--dim); font-size: 12px; min-height: 17px; margin-top: 4px; }
     .stepdetail b { color: var(--txt); }
     .snode circle.body2 { filter: drop-shadow(0 3px 6px rgba(0,0,0,.5)); }
+    .snode.t-user .body2 { fill: rgba(56,189,248,.16); }
+    .snode.t-group .body2 { fill: rgba(242,181,68,.15); }
+    .snode.t-computer .body2 { fill: rgba(167,139,250,.15); }
+    .snode.t-dc .body2 { fill: rgba(251,146,60,.16); }
+    .snode.t-cert .body2 { fill: rgba(94,234,212,.14); }
+    .snode.t-obj .body2 { fill: rgba(148,163,184,.13); }
     .snode text { paint-order: stroke; stroke: rgba(5,7,11,.9); stroke-width: 3px; }
 
     /* ── context menu ────────────────────────────────────── */

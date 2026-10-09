@@ -87,9 +87,28 @@ const S = {
 const $ = id => document.getElementById(id);
 const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const TYPE_COLOR = {User:"var(--user)", Group:"var(--group)", Computer:"var(--computer)", Workstation:"var(--computer)", Server:"var(--computer)", DomainController:"var(--dc)", Domain:"var(--dc)", CertTemplate:"#5eead4", CA:"#5eead4", GPO:"#94a3b8", OU:"#94a3b8"};
-const TYPE_GLYPH = {User:"U", Group:"G", Computer:"C", Workstation:"W", Server:"S", DomainController:"D", Domain:"D", CertTemplate:"CT", CA:"CA", GPO:"GPO", OU:"OU"};
+const TYPE_CLASS = {User:"t-user", Group:"t-group", Computer:"t-computer", Workstation:"t-computer", Server:"t-computer", DomainController:"t-dc", Domain:"t-dc", CertTemplate:"t-cert", CA:"t-cert", GPO:"t-obj", OU:"t-obj", Container:"t-obj", Configuration:"t-obj", BuiltinDomain:"t-obj"};
 const color = n => TYPE_COLOR[n.type] || "#8a94ab";
-const glyph = n => TYPE_GLYPH[n.type] || "?";
+const typeClass = n => TYPE_CLASS[n.type] || "t-other";
+
+/* Iconos SVG (trazo, 24×24) — sin emojis ni letras sueltas. */
+const ICONS = {
+  User: '<circle cx="12" cy="8.2" r="3.4"/><path d="M5.2 19.6c.8-3.6 3.6-5.4 6.8-5.4s6 1.8 6.8 5.4"/>',
+  Group: '<circle cx="9" cy="9.2" r="2.9"/><path d="M3.4 19.2c.6-3 2.8-4.6 5.6-4.6s5 1.6 5.6 4.6"/><circle cx="16.8" cy="9.8" r="2.4"/><path d="M15.8 14.8c2.4.2 4.1 1.6 4.7 4.4"/>',
+  Computer: '<rect x="3.5" y="4.5" width="17" height="11.5" rx="1.8"/><path d="M9.5 20h5M12 16v4"/>',
+  Server: '<rect x="4" y="3.8" width="16" height="7.2" rx="1.8"/><rect x="4" y="13" width="16" height="7.2" rx="1.8"/><path d="M7.3 7.4h.01M7.3 16.6h.01" stroke-width="2.6"/>',
+  Crown: '<path d="M4.5 8.5L7 17.5h10l2.5-9-4.6 3-2.9-5.2-2.9 5.2-4.6-3z"/><path d="M7.5 20.5h9"/>',
+  Cert: '<rect x="4" y="3.5" width="11" height="14" rx="1.8"/><circle cx="8" cy="8.4" r="1.8"/><path d="M6.5 12.4h6"/><path d="M13 14.5l2.3 2.3 3.7-4.1"/>',
+  Doc: '<path d="M6.5 3.5h6.8l4.2 4.2v13H6.5z"/><path d="M13.3 3.5v4.2h4.2"/><path d="M9.3 12.2h5.4M9.3 15.6h5.4"/>',
+  Dot: '<circle cx="12" cy="12" r="4"/>'
+};
+const ICON_FOR = {User:"User", Group:"Group", Computer:"Computer", Workstation:"Computer", Server:"Server", DomainController:"Crown", Domain:"Crown", CertTemplate:"Cert", CA:"Cert", GPO:"Doc", OU:"Doc", Container:"Doc", Configuration:"Doc", BuiltinDomain:"Doc"};
+function iconSvg(n, px) {
+  const body = ICONS[ICON_FOR[n.type] || "Dot"];
+  const half = px / 2;
+  return '<svg class="sym-svg" x="-' + half + '" y="-' + half + '" width="' + px + '" height="' + px +
+    '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">' + body + "</svg>";
+}
 const noiseClass = s => (Number(s) <= 2 ? "low" : Number(s) === 3 ? "med" : "high");
 const noiseName = s => t("noise_" + noiseClass(s));
 const isHigh = n => Boolean(n.high_value || n.is_dc || n.type === "Domain");
@@ -279,7 +298,7 @@ function renderGraph() {
     const n = S.nodeMap.get(id);
     const p = pos.get(id);
     if (!n || !p) return;
-    const cls = ["gnode",
+    const cls = ["gnode", typeClass(n),
       S.owned.has(id) ? "owned" : "",
       S.origin === id ? "origin" : "",
       S.target === id ? "target" : "",
@@ -287,9 +306,10 @@ function renderGraph() {
     const col = color(n);
     const lbl = String(n.name || id);
     html += '<g class="' + cls + '" data-id="' + esc(id) + '" transform="translate(' + p.x + ' ' + p.y + ')">' +
-      '<circle r="24" class="halo"></circle><circle r="15" class="body" style="stroke:' + col + '"></circle>' +
-      '<text class="lbl" y="40">' + esc(lbl.length > 26 ? lbl.slice(0, 24) + "…" : lbl) + "</text>" +
-      (S.owned.has(id) ? '<circle class="own" cx="13" cy="-13" r="7"><title>' + esc(t("owned_badge")) + '</title></circle>' : "") +
+      '<circle r="25" class="halo"></circle><circle r="17" class="body" style="stroke:' + col + '"></circle>' +
+      '<g class="sym" style="color:' + col + '">' + iconSvg(n, 17) + "</g>" +
+      '<text class="lbl" y="41">' + esc(lbl.length > 26 ? lbl.slice(0, 24) + "…" : lbl) + "</text>" +
+      (S.owned.has(id) ? '<circle class="own" cx="14" cy="-14" r="7"><title>' + esc(t("owned_badge")) + '</title></circle>' : "") +
       "</g>";
   });
   html += "</g>";
@@ -511,10 +531,11 @@ function renderStrip(p) {
         '<line x1="' + (x + 44) + '" y1="' + y + '" x2="' + (x + 181) + '" y2="' + y + '" stroke="#3d4c74" stroke-width="2" marker-end="url(#arr)"></line>' +
         '<text x="' + (x + 112) + '" y="' + (y - 14) + '" text-anchor="middle" fill="#8a94ab" font-size="10.5">' + esc(st.edge_type || t("relation")) + "</text></g>";
     }
-    html += '<g class="snode" data-id="' + esc(n.id) + '" style="cursor:pointer">' +
-      (S.owned.has(String(n.id)) ? '<circle cx="' + x + '" cy="' + y + '" r="40" fill="none" stroke="#2ee6a8" stroke-width="2"></circle>' : "") +
-      '<circle class="body2" cx="' + x + '" cy="' + y + '" r="31" fill="#0d1524" style="stroke:' + col + '" stroke-width="2.5"></circle>' +
-      '<text x="' + x + '" y="' + (y + 5.5) + '" text-anchor="middle" font-size="15" font-weight="800" fill="' + col + '">' + esc(glyph(full)) + "</text>" +
+    html += '<g class="snode ' + typeClass(full) + '" data-id="' + esc(n.id) + '" style="cursor:pointer">' +
+      (S.owned.has(String(n.id)) ? '<circle cx="' + x + '" cy="' + y + '" r="41" fill="none" stroke="#2ee6a8" stroke-width="2"></circle>' : "") +
+      '<g transform="translate(' + x + ' ' + y + ')" style="color:' + col + '">' +
+      '<circle class="body2" r="31" fill="#0d1524" style="stroke:' + col + '" stroke-width="2.5"></circle>' +
+      iconSvg(full, 30) + "</g>" +
       '<text x="' + x + '" y="' + (y + 56) + '" text-anchor="middle" font-size="11.5" font-weight="600" fill="#dbe4f3">' + esc(String(n.name || n.id).length > 20 ? String(n.name || n.id).slice(0, 18) + "…" : String(n.name || n.id)) + "</text></g>";
   });
   $("spath").innerHTML = html;
