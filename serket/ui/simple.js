@@ -38,7 +38,26 @@ const I18N = {
     no_relations: "sin relaciones",
     lang_button: "EN",
     explore: "Explorar", route: "Ruta", one_more_hop: "+1 salto", one_less_hop: "−1 salto",
-    rel_count: "relaciones"
+    rel_count: "relaciones",
+    node_info: "Información del nodo",
+    prop_dn: "DN", prop_guid: "GUID",
+    prop_enabled: "Habilitada", prop_disabled: "Deshabilitada",
+    prop_pwd: "Pwd cambiada", prop_lastlogon: "Último logon",
+    prop_krb: "Kerberoastable", prop_asrep: "AS-REP roastable",
+    prop_deleg: "Delegación", prop_spns: "SPNs",
+    prop_admincount: "AdminCount", prop_laps: "LAPS legible",
+    prop_os: "SO", prop_sens: "Sensibilidad",
+    prop_hv: "Alto valor", prop_dc: "DC",
+    prop_stale: "Stale", prop_locked: "Bloqueada",
+    prop_neverexp: "Nunca expira", prop_notreq: "Pwd no requerida",
+    prop_reversible: "Cifrado reversible", prop_protected: "Protected Users",
+    prop_missing_pu: "Fuera de Protected Users",
+    prop_hv1hop: "HV a 1 salto", prop_out: "Controla", prop_in: "Lo controlan",
+    prop_gmsa: "gMSA legible", prop_days: "días",
+    prop_hint: "Clic en un nodo para enfocarlo · clic derecho para marcarlo",
+    yes: "sí", no: "no",
+    prop_findings: "Hallazgos",
+    theme_to_dark: "Tema oscuro", theme_to_light: "Tema claro"
   },
   en: {
     tagline: "attack paths", search_ph: "Search user, group, computer…  ( / )",
@@ -72,7 +91,26 @@ const I18N = {
     no_relations: "no relations",
     lang_button: "ES",
     explore: "Explore", route: "Path", one_more_hop: "+1 hop", one_less_hop: "−1 hop",
-    rel_count: "relationships"
+    rel_count: "relationships",
+    node_info: "Node info",
+    prop_dn: "DN", prop_guid: "GUID",
+    prop_enabled: "Enabled", prop_disabled: "Disabled",
+    prop_pwd: "Pwd changed", prop_lastlogon: "Last logon",
+    prop_krb: "Kerberoastable", prop_asrep: "AS-REP roastable",
+    prop_deleg: "Delegation", prop_spns: "SPNs",
+    prop_admincount: "AdminCount", prop_laps: "LAPS readable",
+    prop_os: "OS", prop_sens: "Sensitivity",
+    prop_hv: "High value", prop_dc: "DC",
+    prop_stale: "Stale", prop_locked: "Locked out",
+    prop_neverexp: "Never expires", prop_notreq: "Pwd not required",
+    prop_reversible: "Reversible encryption", prop_protected: "Protected Users",
+    prop_missing_pu: "Not in Protected Users",
+    prop_hv1hop: "HV 1 hop", prop_out: "Controls", prop_in: "Controlled by",
+    prop_gmsa: "gMSA readable", prop_days: "days",
+    prop_hint: "Click a node to focus · right-click to mark it",
+    yes: "yes", no: "no",
+    prop_findings: "Findings",
+    theme_to_dark: "Dark theme", theme_to_light: "Light theme"
   }
 };
 
@@ -94,6 +132,7 @@ const S = {
 
 const $ = id => document.getElementById(id);
 const esc = v => String(v == null ? "" : v).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const cssvar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const TYPE_COLOR = {User:"var(--user)", Group:"var(--group)", Computer:"var(--computer)", Workstation:"var(--computer)", Server:"var(--computer)", DomainController:"var(--dc)", Domain:"var(--dc)", CertTemplate:"#5eead4", CA:"#5eead4", GPO:"#94a3b8", OU:"#94a3b8"};
 const TYPE_CLASS = {User:"t-user", Group:"t-group", Computer:"t-computer", Workstation:"t-computer", Server:"t-computer", DomainController:"t-dc", Domain:"t-dc", CertTemplate:"t-cert", CA:"t-cert", GPO:"t-obj", OU:"t-obj", Container:"t-obj", Configuration:"t-obj", BuiltinDomain:"t-obj"};
 const color = n => TYPE_COLOR[n.type] || "#8a94ab";
@@ -146,6 +185,7 @@ function applyLang() {
   renderLegend(); renderChips(); renderResults(); updateScopeButtons();
   if (S.results[S.active]) renderStrip(S.results[S.active]);
   updateMarks();
+  renderNodeInfo();
 }
 
 $("lang").addEventListener("click", () => {
@@ -153,6 +193,91 @@ $("lang").addEventListener("click", () => {
   localStorage.setItem("serket.lang", LANG);
   location.reload();
 });
+
+/* ── tema claro / oscuro ─────────────────────────────────────────────── */
+function applyTheme() {
+  const dark = document.documentElement.dataset.theme === "dark";
+  localStorage.setItem("serket.theme", dark ? "dark" : "light");
+  const btn = $("theme");
+  btn.textContent = dark ? "☀️" : "🌙";
+  btn.title = dark ? t("theme_to_light") : t("theme_to_dark");
+  const mark = (mid, v) => { const p = document.querySelector("#" + mid + " path"); if (p) p.setAttribute("fill", v); };
+  mark("arr", cssvar("--edge")); mark("arr-on", cssvar("--accent")); mark("arr-in", cssvar("--edge-in"));
+  renderLegend(); renderGraph();
+  if (S.results[S.active]) renderStrip(S.results[S.active]);
+}
+$("theme").addEventListener("click", () => {
+  document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  applyTheme();
+});
+
+/* ── panel de información del nodo (clic) ───────────────────────────── */
+const TYPE_NAME = {User:"User", Group:"Group", Computer:"Computer", Workstation:"Computer", Server:"Server", DomainController:"Domain Controller", Domain:"Domain", CertTemplate:"Cert Template", CA:"CA", GPO:"GPO", OU:"OU", Container:"Container", Configuration:"Configuration", BuiltinDomain:"Builtin Domain"};
+const shortDate = iso => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return isNaN(d) ? String(iso).slice(0, 10) : d.toISOString().slice(0, 10);
+};
+
+function renderNodeInfo() {
+  const box = $("ninfo");
+  if (!box) return;
+  const id = S.focus;
+  const n = (id && S.nodeMap.get(id)) || null;
+  if (!n) { box.innerHTML = '<span class="empty">' + esc(t("empty_results2")) + "</span>"; return; }
+  const col = color(n);
+  const isDC = Boolean(n.is_dc || n.type === "Domain" || n.type === "DomainController");
+  const flags = [];
+  const F = (cls, label) => flags.push('<span class="' + cls + '">' + esc(label) + "</span>");
+  if (isHigh(n)) F("", t("prop_hv"));
+  if (isDC) F("", t("prop_dc"));
+  if (S.owned.has(id)) F("", t("owned_badge"));
+  if (n.enabled === false) F("bad", t("prop_disabled"));
+  if (n.locked_out) F("warn", t("prop_locked"));
+  if (n.stale) F("warn", t("prop_stale"));
+  if (n.kerberoastable) F("warn", t("prop_krb"));
+  if (n.asreproastable) F("bad", t("prop_asrep"));
+  if (n.delegation_mode && n.delegation_mode !== "none") F("warn", t("prop_deleg") + ": " + n.delegation_mode);
+  if (n.pwd_never_expires) F("warn", t("prop_neverexp"));
+  if (n.pwd_not_required) F("bad", t("prop_notreq"));
+  if (n.reversible_encryption) F("bad", t("prop_reversible"));
+  if (n.gmsa_password_readable) F("bad", t("prop_gmsa"));
+  if (n.missing_protected_users) F("warn", t("prop_missing_pu"));
+  if (n.protected_user) F("", t("prop_protected"));
+
+  const out = edgesOut(id), inn = edgesIn(id);
+  const hv1 = out.filter(x => S.high.has(x.other)).length + inn.filter(x => S.high.has(x.other)).length;
+
+  const row = (k, v) => '<div class="ni-row"><span>' + esc(k) + '</span><b>' + esc(v) + "</b></div>";
+  let rows = "";
+  rows += row(t("prop_dn"), n.dn || "—");
+  rows += row(t("prop_guid"), n.guid || String(id));
+  rows += row(t("prop_enabled"), n.enabled === false ? t("no") : t("yes"));
+  if (n.pwd_last_set) rows += row(t("prop_pwd"), shortDate(n.pwd_last_set) + "  ·  " + (n.pwd_age_days != null ? n.pwd_age_days + " " + t("prop_days") : "—"));
+  if (n.last_logon) rows += row(t("prop_lastlogon"), shortDate(n.last_logon) + (n.last_logon_age_days != null ? "  ·  " + n.last_logon_age_days + " " + t("prop_days") : ""));
+  if (n.delegation_mode && n.delegation_mode !== "none") rows += row(t("prop_deleg"), n.delegation_mode);
+  if (Array.isArray(n.spns) && n.spns.length) rows += row(t("prop_spns"), n.spns.length + "  ·  " + n.spns.slice(0, 2).join(", ") + (n.spns.length > 2 ? "…" : ""));
+  if (n.admin_count) rows += row(t("prop_admincount"), String(n.admin_count));
+  if (n.laps_readable) rows += row(t("prop_laps"), t("yes"));
+  if (n.os_display) rows += row(t("prop_os"), n.os_display);
+  if (n.sensitivity && n.sensitivity !== "none") rows += row(t("prop_sens"), n.sensitivity);
+  (n.findings || []).forEach(f => {
+    const label = typeof f === "string" ? f
+      : [f.badge || f.title || f.id || f.name, f.severity].filter(Boolean).join(" · ");
+    if (label) rows += row(t("prop_findings"), label);
+  });
+
+  box.innerHTML =
+    '<div class="ni-head"><span class="ni-ico" style="--nc:' + col + '">' + iconSvg(n, 19) + "</span>" +
+      "<div><b>" + esc(n.name || id) + "</b><small>" + esc(TYPE_NAME[n.type] || n.type || "Object") + "</small></div></div>" +
+    (flags.length ? '<div class="ni-flags">' + flags.join("") + "</div>" : "") +
+    '<div class="ni-stats">' +
+      "<div><b>" + out.length + "</b><span>" + esc(t("prop_out")) + "</span></div>" +
+      "<div><b>" + inn.length + "</b><span>" + esc(t("prop_in")) + "</span></div>" +
+      "<div><b>" + hv1 + "</b><span>" + esc(t("prop_hv1hop")) + "</span></div></div>" +
+    rows +
+    '<div class="ni-hint">' + esc(t("prop_hint")) + "</div>";
+}
 
 function renderLegend() {
   $("legend").innerHTML =
@@ -207,6 +332,7 @@ function focusNode(id, announce = true) {
   S.mode = "neighbors";
   updateScopeButtons();
   renderGraph();
+  renderNodeInfo();
   if (announce) {
     const rel = edgesOut(S.focus).length + edgesIn(S.focus).length;
     toast(t("toast_focus") + ": " + nodeName(id) + (rel ? "" : " · " + t("no_relations")));
@@ -341,18 +467,18 @@ function renderGraph() {
       : "M" + a.x + "," + a.y + " C" + (a.x + bend) + "," + a.y + " " + (b.x - bend) + "," + b.y + " " + b.x + "," + b.y;
     const label = agg.types[0] + (agg.count > 1 ? " ×" + agg.count : "");
     const inOnly = Boolean(scope.star) && agg.hasIn && !agg.hasOut;
-    const stroke = inOnly ? "#56637f" : (on ? "#2fd9a1" : "#3f4c6b");
+    const stroke = inOnly ? "var(--edge-in)" : (on ? "var(--accent)" : "var(--edge)");
     const dash = inOnly ? ' stroke-dasharray="6 5"' : "";
     const marker = on ? "#arr-on" : (inOnly ? "#arr-in" : "#arr");
-    html += '<path d="' + d + '" fill="none"' + dash + ' stroke="' + stroke + '" stroke-width="' + (on ? 2.6 : (inOnly ? 1.3 : 1.7)) +
+    html += '<path d="' + d + '" fill="none"' + dash + ' style="stroke:' + stroke + '" stroke-width="' + (on ? 2.6 : (inOnly ? 1.3 : 1.7)) +
       '" marker-end="url(' + marker + ')" opacity="' + (on ? 1 : (inOnly ? 0.6 : 0.85)) + '"><title>' + esc(agg.types.join(", ")) + '</title></path>';
     /* etiqueta con pastilla de fondo para que se lea siempre */
     const tw = label.length * 5.9 + 10;
-    html += '<rect x="' + (midX - tw / 2) + '" y="' + (midY - 8.5) + '" width="' + tw + '" height="13" rx="6.5" fill="rgba(5,8,14,.82)" stroke="' + (inOnly ? "rgba(86,99,127,.35)" : "rgba(63,76,107,.4)") + '" stroke-width="0.7"></rect>' +
-      '<text x="' + midX + '" y="' + (midY + 2.5) + '" text-anchor="middle" font-size="10" fill="' + (inOnly ? "#9aa6c0" : "#bcc8e2") + '" class="edge-lbl">' + esc(label) + "</text>";
+    html += '<rect x="' + (midX - tw / 2) + '" y="' + (midY - 8.5) + '" width="' + tw + '" height="13" rx="6.5" style="fill:var(--pill);stroke:var(--pill-border)" stroke-width="0.7"></rect>' +
+      '<text x="' + midX + '" y="' + (midY + 2.5) + '" text-anchor="middle" font-size="10" style="fill:' + (inOnly ? "var(--faint)" : "var(--dim)") + '" class="edge-lbl">' + esc(label) + "</text>";
   }
   if (scope.star) {
-    const cap = (s, x, anchor) => '<text x="' + x + '" y="30"' + (anchor ? ' text-anchor="' + anchor + '"' : "") + ' font-size="9.5" font-weight="700" letter-spacing="2.5" fill="#5d6b88" class="edge-lbl">' + esc(s.toUpperCase()) + "</text>";
+    const cap = (s, x, anchor) => '<text x="' + x + '" y="30"' + (anchor ? ' text-anchor="' + anchor + '"' : "") + ' font-size="9.5" font-weight="700" letter-spacing="2.5" style="fill:var(--faint)" class="edge-lbl">' + esc(s.toUpperCase()) + "</text>";
     if (scope.nOut) html += cap(t("sec_controls"), Math.round(w * 0.36), "");
     if (scope.nIn) html += cap(t("sec_controlled") + " · " + scope.nIn + (scope.nInHidden ? "  (+" + scope.nInHidden + " " + t("sec_default_acl") + ")" : ""), Math.round(w * 0.86), "middle");
   }
@@ -592,15 +718,15 @@ function renderStrip(p) {
     if (i < steps.length) {
       const st = steps[i];
       html += '<g class="sstep" data-i="' + i + '" style="cursor:pointer">' +
-        '<line x1="' + (x + 44) + '" y1="' + y + '" x2="' + (x + 181) + '" y2="' + y + '" stroke="#3d4c74" stroke-width="2" marker-end="url(#arr)"></line>' +
-        '<text x="' + (x + 112) + '" y="' + (y - 14) + '" text-anchor="middle" fill="#8a94ab" font-size="10.5">' + esc(st.edge_type || t("relation")) + "</text></g>";
+        '<line x1="' + (x + 44) + '" y1="' + y + '" x2="' + (x + 181) + '" y2="' + y + '" style="stroke:var(--edge)" stroke-width="2" marker-end="url(#arr)"></line>' +
+        '<text x="' + (x + 112) + '" y="' + (y - 14) + '" text-anchor="middle" style="fill:var(--faint)" font-size="10.5">' + esc(st.edge_type || t("relation")) + "</text></g>";
     }
     html += '<g class="snode ' + typeClass(full) + '" data-id="' + esc(n.id) + '" style="cursor:pointer">' +
-      (S.owned.has(String(n.id)) ? '<circle cx="' + x + '" cy="' + y + '" r="41" fill="none" stroke="#2ee6a8" stroke-width="2"></circle>' : "") +
+      (S.owned.has(String(n.id)) ? '<circle cx="' + x + '" cy="' + y + '" r="41" fill="none" style="stroke:var(--accent)" stroke-width="2"></circle>' : "") +
       '<g transform="translate(' + x + ' ' + y + ')" style="color:' + col + '">' +
-      '<circle class="body2" r="31" fill="#0d1524" style="stroke:' + col + '" stroke-width="2.5"></circle>' +
+      '<circle class="body2" r="31" style="stroke:' + col + '" stroke-width="2.5"></circle>' +
       iconSvg(full, 30) + "</g>" +
-      '<text x="' + x + '" y="' + (y + 56) + '" text-anchor="middle" font-size="11.5" font-weight="600" fill="#dbe4f3">' + esc(String(n.name || n.id).length > 20 ? String(n.name || n.id).slice(0, 18) + "…" : String(n.name || n.id)) + "</text></g>";
+      '<text class="nm" x="' + x + '" y="' + (y + 56) + '" text-anchor="middle" font-size="11.5" font-weight="600">' + esc(String(n.name || n.id).length > 20 ? String(n.name || n.id).slice(0, 18) + "…" : String(n.name || n.id)) + "</text></g>";
   });
   $("spath").innerHTML = html;
   $("stitle").textContent = (p.src_name || p.src) + " → " + (p.target_name || p.target);
@@ -653,4 +779,5 @@ $("legal-ok").addEventListener("change", ev => { $("legal-go").disabled = !ev.ta
 $("legal-go").addEventListener("click", () => { $("legal").hidden = true; });
 
 applyLang();
+applyTheme();
 init().catch(err => toast(t("toast_loading") + ": " + err.message));
