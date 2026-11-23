@@ -79,11 +79,19 @@ def _build_parser() -> argparse.ArgumentParser:
     auth.add_argument("-p",   "--password", metavar="PASS",   help="Password (omit to prompt)")
     auth.add_argument("--hashes",           metavar="LM:NT",  help="NTLM hashes (LM:NT or just :NT)")
     auth.add_argument("-k",  "--kerberos",  action="store_true", help="Use Kerberos (KRB5CCNAME)")
+    auth.add_argument("--auth", choices=["ntlm", "simple", "kerberos"], metavar="MODE",
+                      help="Auth mode: ntlm (default), kerberos (same as -k), or simple — "
+                           "LDAP simple-bind compatibility mode for servers that reject "
+                           "ldap3's NTLM exchange (e.g. Samba AD DCs). WARNING: simple bind "
+                           "leaves distinct auth telemetry on the DC; prefer ntlm/kerberos.")
     auth.add_argument("--ldaps",            action="store_true", help="Use LDAPS (port 636)")
 
     opt = p.add_argument_group("Options")
     opt.add_argument("--rate-limit",  type=float, default=0.08, metavar="SEC",
                      help="Seconds between LDAP pages (default: 0.08)")
+    opt.add_argument("--jitter", type=float, default=0.5, metavar="0-1",
+                     help="Random jitter applied to the rate-limit, 0-1 (default: 0.5;"
+                          " 0 = perfectly regular cadence, easier to fingerprint)")
     opt.add_argument("--max-paths",   type=int,   default=20,
                      help="Maximum attack paths to compute (default: 20)")
     opt.add_argument("--no-acls",     action="store_true",
@@ -104,6 +112,9 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Load a result bundle, manifest, or legacy results JSON")
     opt.add_argument("--serve", metavar="PATH",
                      help="Launch the web UI from a bundle, manifest, or legacy JSON")
+    opt.add_argument("--gui", action="store_true",
+                     help="With --serve: open the workbench in a native desktop window "
+                          "(falls back to the browser if unavailable)")
     opt.add_argument("--input", metavar="PATH",
                      help="Input .serket package for the enrich command")
     opt.add_argument("--bridge", metavar="PATH",
@@ -145,8 +156,10 @@ def _run_collect(args) -> None:
         password   = getattr(args, "password", None),
         hashes     = getattr(args, "hashes",   None),
         kerberos   = getattr(args, "kerberos", False),
+        simple_auth = getattr(args, "simple_auth", False),
         use_ldaps  = getattr(args, "ldaps",    False),
         rate_limit = args.rate_limit,
+        jitter     = getattr(args, "jitter", 0.5),
     )
 
     def _progress(stage: str):
@@ -364,7 +377,7 @@ def _run_server_command(output_dir: str, domain: str | None, port: int) -> None:
         sys.exit(1)
     _run_serve(json_path, port=port)
 
-def _run_serve(json_path: str, port: int = 8080) -> None:
+def _run_serve(json_path: str, port: int = 8080, gui: bool = False) -> None:
     """Load a saved result bundle or legacy JSON and launch the web UI."""
     if not os.path.exists(json_path):
         console.print(f"[red][!] Result not found: {json_path}[/]")
@@ -402,6 +415,19 @@ def _run_serve(json_path: str, port: int = 8080) -> None:
         )
     else:
         console.print("  [dim](No graph data found — using saved paths)[/]\n")
+
+    if gui:
+        from serket.gui import gui_available, run_gui
+
+        if gui_available():
+            console.print("  [green]✓[/] Opening native workbench window (close it to exit)\n")
+            try:
+                run_gui(data, port=port)
+                return
+            except Exception as exc:  # webview backends can fail at runtime
+                console.print(f"  [yellow][!][/] Native window failed ({exc}); falling back to browser mode\n")
+        else:
+            console.print("  [yellow][!][/] Native window unavailable (install pywebview / no display); using browser mode\n")
 
     run_server(data, port=port)
 
@@ -457,9 +483,25 @@ def main() -> None:
     parser = _build_parser()
     args   = parser.parse_args()
 
+    # ── Resolve explicit --auth mode (wins over -k/--hashes legacy flags) ─────
+    args.simple_auth = getattr(args, "auth", None) == "simple"
+    if getattr(args, "auth", None) == "kerberos":
+        args.kerberos = True
+    elif getattr(args, "auth", None) == "ntlm":
+        args.kerberos = False
+    elif getattr(args, "auth", None) == "simple":
+        args.kerberos = False
+        args.hashes = None
+
     if not args.quiet:
         banner()
         console.print()
+
+    if args.simple_auth and not args.quiet:
+        console.print(
+            "[yellow][!] --auth simple: the DC will log a plain LDAP simple bind "
+            "instead of NTLM. Your auth telemetry signature changes.[/]"
+        )
 
     # ── Automatic server mode ─────────────────────────────────────────────────
     if args.command == "server":
@@ -484,7 +526,7 @@ def main() -> None:
 
     # ── Serve mode ────────────────────────────────────────────────────────────
     if args.serve:
-        _run_serve(args.serve, port=args.port)
+        _run_serve(args.serve, port=args.port, gui=getattr(args, "gui", False))
         return
 
     # ── Load mode ─────────────────────────────────────────────────────────────

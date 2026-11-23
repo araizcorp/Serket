@@ -38,7 +38,7 @@ button.flow-node::after {
   border-radius: 50%;
   background: #0a0e14;
   color: #aeb8c1;
-  font-size: 8px;
+  font: 600 9px var(--mono);
 }
 button.flow-node:first-child,
 button.flow-node:last-child { border: 0; box-shadow: none; }
@@ -61,8 +61,8 @@ button.flow-node.selected {
     radial-gradient(circle, color-mix(in srgb, var(--node-color) 13%, #0b1017), #0b1017 68%);
   color: var(--node-color, var(--blue));
   box-shadow:
-    0 0 0 7px color-mix(in srgb, var(--node-color) 5%, transparent),
-    0 14px 34px rgba(0, 0, 0, .38);
+    0 0 0 5px color-mix(in srgb, var(--node-color) 6%, transparent),
+    0 10px 26px rgba(0, 0, 0, .34);
   transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
 }
 .flow-node .node-icon svg { width: 27px; height: 27px; }
@@ -72,9 +72,8 @@ button.flow-node.selected {
   background:
     radial-gradient(circle, color-mix(in srgb, var(--node-color) 20%, #0b1017), #0b1017 70%);
   box-shadow:
-    0 0 0 9px color-mix(in srgb, var(--node-color) 9%, transparent),
-    0 0 28px color-mix(in srgb, var(--node-color) 22%, transparent),
-    0 16px 40px rgba(0, 0, 0, .42);
+    0 0 0 7px color-mix(in srgb, var(--node-color) 10%, transparent),
+    0 12px 30px rgba(0, 0, 0, .38);
 }
 .flow-node:first-child .node-icon::after {
   content: "START";
@@ -83,17 +82,15 @@ button.flow-node.selected {
   top: -28px;
   transform: translateX(-50%);
   color: #8fc8ff;
-  font: 700 7px var(--mono);
+  font: 600 9px var(--mono);
   letter-spacing: .14em;
 }
 .flow-node:last-child .node-icon {
   border-color: var(--gold);
   color: var(--gold-soft);
   box-shadow:
-    0 0 0 6px rgba(214, 174, 85, .07),
-    0 0 0 11px rgba(214, 174, 85, .025),
-    0 0 30px rgba(214, 174, 85, .12),
-    0 14px 34px rgba(0, 0, 0, .38);
+    0 0 0 5px rgba(207, 168, 92, .08),
+    0 12px 30px rgba(0, 0, 0, .36);
 }
 .flow-node:last-child .node-icon::after {
   content: "TIER 0";
@@ -102,15 +99,16 @@ button.flow-node.selected {
   top: -28px;
   transform: translateX(-50%);
   color: var(--gold-soft);
-  font: 700 7px var(--mono);
+  font: 600 9px var(--mono);
   letter-spacing: .14em;
   white-space: nowrap;
 }
 .flow-node .node-kind {
   margin-top: 17px;
-  color: #a7b1ba;
-  font-size: 8px;
-  letter-spacing: .14em;
+  color: var(--muted);
+  font: 600 10px var(--sans);
+  letter-spacing: .07em;
+  text-transform: uppercase;
 }
 .flow-node .node-label {
   max-width: 148px;

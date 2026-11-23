@@ -19,6 +19,8 @@
   <link rel="stylesheet" href="/assets/path-graph.css">
   <link rel="stylesheet" href="/assets/path-graph-interactions.css">
   <link rel="stylesheet" href="/assets/node-inspector.css">
+  <link rel="stylesheet" href="/assets/query-console.css">
+  <link rel="stylesheet" href="/assets/bloodhound.css">
   <script src="/assets/workbench.js" defer></script>
   <script src="/assets/query-runtime.js" defer></script>
   <script src="/assets/search-runtime.js" defer></script>
@@ -27,6 +29,8 @@
   <script src="/assets/node-inspector.js" defer></script>
   <script src="/assets/i18n.js" defer></script>
   <script src="/assets/inspector-controls.js" defer></script>
+  <script src="/assets/query-console.js" defer></script>
+  <script src="/assets/bloodhound.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">Saltar al contenido</a>
@@ -59,6 +63,7 @@
 
       <div class="topbar-actions">
         <span class="local-status"><i></i> LOCAL</span>
+        <button class="quiet-button" id="console-button" type="button" aria-label="Abrir consola de consultas SKQL" title="Query console (SKQL)">&gt;_</button>
         <button class="quiet-button" id="help-button" type="button" aria-label="Ver ayuda y atajos">?</button>
       </div>
     </header>
@@ -308,8 +313,27 @@
         <kbd>J / K</kbd><span>Cambiar entre rutas visibles</span>
         <kbd>0</kbd><span>Recentrar el explorador</span>
         <kbd>Esc</kbd><span>Cerrar resultados o diálogo</span>
+        <kbd>🖱️↔</kbd><span>Clic derecho en un nodo: marcar como comprometida, fijar origen/objetivo y buscar rutas (estilo BloodHound)</span>
+        <kbd>2×🖱️</kbd><span>Doble clic en un nodo: fijarlo como origen de la búsqueda</span>
       </div>
     </section>
   </div>
+
+  <section class="query-console" id="query-console" aria-label="Consola de consultas SKQL">
+    <div class="qc-header">
+      <span class="qc-title">Query console · <b>SKQL</b></span>
+      <select id="qc-examples" aria-label="Example queries"></select>
+      <select id="qc-history" aria-label="Query history"></select>
+      <div class="qc-spacer"></div>
+      <span class="qc-status" id="qc-status">Local graph only — no AD traffic</span>
+      <button class="qc-close" id="qc-close" type="button" aria-label="Cerrar consola">×</button>
+    </div>
+    <div class="qc-editor-row">
+      <textarea id="qc-input" spellcheck="false" placeholder='MATCH (u:User)-[e:MemberOf]->(g:Group) WHERE g.high_value = true RETURN u.name, g.name ORDER BY u.name LIMIT 25'></textarea>
+      <button id="qc-run" type="button">Run ⏎</button>
+    </div>
+    <div class="qc-results-wrap" id="qc-results"><div class="qc-empty">Run a query or pick an example. Ctrl+Enter to execute.</div></div>
+  </section>
+
 </body>
 </html>

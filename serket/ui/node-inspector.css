@@ -1,6 +1,6 @@
 .inspector-tabs button { min-width: 0; padding-inline: 6px; }
 .credential-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
-.credential-badge { padding: 3px 6px; border: 1px solid currentColor; border-radius: 999px; font: 700 8px var(--mono); letter-spacing: .04em; }
+.credential-badge { padding: 3px 8px; border: 1px solid currentColor; border-radius: 999px; font: 600 9px var(--mono); letter-spacing: .04em; }
 .credential-badge.reuse { color: var(--red-soft); background: rgba(224, 68, 78, .1); }
 .credential-badge.cloud { color: var(--blue); background: rgba(101, 169, 232, .1); }
 .credential-badge.laps { color: var(--green); background: rgba(98, 199, 138, .1); }
@@ -28,7 +28,7 @@
 .node-relation-type {
   overflow: hidden;
   color: var(--red-soft);
-  font: 700 8px var(--mono);
+  font: 700 10px var(--mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -37,18 +37,18 @@
 .node-path-row strong,
 .node-path-row small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node-relation-row strong,
-.node-path-row strong { color: #edf1f4; font-size: 10px; }
+.node-path-row strong { color: #edf1f4; font-size: 12px; font-weight: 600; }
 .node-relation-row small,
-.node-path-row small { margin-top: 2px; color: #9da8b1; font-size: 8px; }
+.node-path-row small { margin-top: 2px; color: #9da8b1; font-size: 10px; }
 .node-relation-arrow { color: var(--gold-soft); font-size: 15px; }
 .node-relation-empty {
   padding: 18px 12px;
   border: 1px dashed var(--line-strong);
   border-radius: 8px;
   color: #aeb8c1;
-  font-size: 10px;
+  font-size: 11px;
   text-align: center;
 }
-.node-path-summary { margin: 12px 0; color: #aeb8c1; font-size: 10px; }
+.node-path-summary { margin: 12px 0; color: #aeb8c1; font-size: 11px; }
 .node-path-summary strong { color: var(--gold-soft); }
 .node-path-row { grid-template-columns: minmax(0, 1fr) auto; }

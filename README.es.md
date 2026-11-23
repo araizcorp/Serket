@@ -21,7 +21,13 @@ Serket recopila metadatos autorizados de Active Directory mediante LDAP, transfo
 
 Serket no se presenta como “indetectable”. Su perfil de colección controlada reduce consultas innecesarias, mide la huella de la colección y permite comparar la actividad esperada con la telemetría del DC, SIEM, EDR y NDR.
 
-![Serket Workbench](docs/media/serket-workbench-preview-02.png)
+![Serket Workbench — Vista general del dominio](docs/media/serket-workbench-overview.png)
+
+| | |
+|---|---|
+| ![Rutas](docs/media/serket-workbench-paths.png) | ![Explorador](docs/media/serket-workbench-explorer.png) |
+
+> Capturas reales del workbench sirviendo el bundle `demo/` incluido.
 
 ## Estado de las funciones
 
@@ -307,6 +313,30 @@ docker run --rm \
 También se puede utilizar `docker compose up --build`.
 
 La publicación está preparada para `ghcr.io/araizcorp/serket`, pero el comando de descarga será válido únicamente después de publicar la primera versión etiquetada. Consulta [DOCKER.md](DOCKER.md).
+
+
+## Colección controlada (OPSEC)
+
+Serket está diseñado para trabajos autorizados de red team y purple team en
+los que la propia colección debe mantener un perfil bajo:
+
+- **Solo LDAP, solo DC, sesión única.** Sin SMB, sin Kerberoasting, sin
+  escaneo de puertos. El único tráfico son búsquedas LDAP paginadas estándar
+  contra un único controlador de dominio.
+- **Paginación con rate-limit y jitter aleatorio.** `--rate-limit SEC`
+  (0,08 por defecto) pausa entre páginas; `--jitter 0-1` (0,5 por defecto)
+  aleatoriza cada pausa en ±50 % para que la cadencia no parezca la de un
+  script perfectamente regular. Sube ambos valores para un perfil más lento
+  y silencioso (p. ej. `--rate-limit 0.4 --jitter 0.7`).
+- **LDAPS** (`--ldaps`) cifra las consultas en el canal.
+- **Medición de huella.** Cada ejecución registra las búsquedas, páginas y
+  entradas generadas (`collection.telemetry` en el manifiesto) para comparar
+  la actividad esperada con la telemetría del DC, SIEM, EDR y NDR durante la
+  revisión purple team.
+
+Serket no afirma ser indetectable: con auditoría de consultas LDAP activada,
+cualquier cliente LDAP es observable. El objetivo es un perfil controlado y
+medible, no la invisibilidad.
 
 ## Seguridad y privacidad
 

@@ -21,7 +21,13 @@ Serket collects authorized Active Directory metadata over LDAP, converts identit
 
 Serket is not presented as “undetectable.” Its controlled collection profile reduces unnecessary queries, measures the collection footprint and helps an assessment team compare expected activity with DC, SIEM, EDR and NDR telemetry.
 
-![Serket Workbench](docs/media/serket-workbench-preview-02.png)
+![Serket Workbench — Domain overview](docs/media/serket-workbench-overview.png)
+
+| | |
+|---|---|
+| ![Paths](docs/media/serket-workbench-paths.png) | ![Explorer](docs/media/serket-workbench-explorer.png) |
+
+> Screenshots captured from the real workbench serving the included `demo/` bundle.
 
 ## Current capabilities
 
@@ -31,6 +37,7 @@ Serket is not presented as “undetectable.” Its controlled collection profile
 | Optional offline SYSVOL | Available | Explicit local/mounted copy only: Registry.pol, script inventory and Local Users and Groups preferences |
 | System classification | Available | Workstations, member servers and domain controllers are modeled and counted separately |
 | Authentication | Available | Password prompt, NTLM hash, Kerberos cache and optional LDAPS |
+| Rate-limit jitter | Available | `--rate-limit` + `--jitter` randomize the LDAP paging cadence (±50% by default) |
 | Relationship graph | Available | Directed multigraph; parallel permissions are preserved instead of overwriting one another |
 | Global path analysis | Available | OPSEC-weighted Dijkstra paths to high-value nodes |
 | Interactive path query | Available | Choose a loaded source and target/Tier 0; computation uses the saved graph and does not query AD again |
@@ -56,6 +63,30 @@ flowchart LR
 ```
 
 The browser interface reads the saved result. It never executes validation commands and an interactive path query never reconnects to the directory.
+
+## Controlled collection (OPSEC)
+
+Serket is designed for authorized red team and purple team work where the
+collection itself must stay low-profile:
+
+- **LDAP-only, DC-only, single session.** No SMB, no Kerberos roasting, no
+  port scanning. The only traffic is standard paged LDAP search against one
+  domain controller.
+- **Rate-limited paging with random jitter.** `--rate-limit SEC` (default
+  0.08) sleeps between pages; `--jitter 0-1` (default 0.5) randomizes each
+  pause by ±50% so the cadence does not look like a perfectly regular
+  script. Raise both for a slower, quieter profile
+  (e.g. `--rate-limit 0.4 --jitter 0.7`).
+- **LDAPS** (`--ldaps`) encrypts the queries on the wire.
+- **Footprint measurement.** Every run records the searches, pages and
+  entries it generated (`collection.telemetry` in the manifest) so the team
+  can compare expected activity with DC, SIEM, EDR and NDR telemetry during
+  a purple-team review.
+
+Serket does not claim to be undetectable: with LDAP query auditing enabled,
+any LDAP client is observable. The goal is a controlled, measurable profile,
+not invisibility.
+
 
 ## Requirements
 
