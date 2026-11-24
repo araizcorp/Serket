@@ -10,91 +10,133 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/araizcorp/Serket/releases/tag/v2.1.0"><img src="https://img.shields.io/badge/Release-v2.1.0-e02b20?style=for-the-badge&logo=github&logoColor=white" alt="Release v2.1.0"></a>
+  <img src="https://img.shields.io/badge/Architecture-Local--First-0f172a?style=for-the-badge" alt="Local-First">
+  <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20Linux%20%7C%20Docker-1e293b?style=for-the-badge" alt="Platforms">
+  <img src="https://img.shields.io/badge/Python-3.10%20%7C%203.11%20%7C%203.12-0f172a?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.10 | 3.11 | 3.12">
+  <img src="https://img.shields.io/badge/Tests-94%20passing-10b981?style=for-the-badge" alt="Tests 94 passing">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-d97706?style=for-the-badge" alt="License MIT"></a>
+</p>
+
+<p align="center">
   <a href="README.md">English</a> · <a href="README.es.md">Español</a> ·
-  <a href="LEGAL.md">Legal notice</a> · <a href="DOCKER.md">Container guide</a>
+  <a href="LEGAL.md">Legal notice</a> · <a href="DOCKER.md">Container guide</a> ·
+  <a href="https://github.com/araizcorp/Serket/releases/tag/v2.1.0"><strong>Download serket.exe (v2.1.0)</strong></a>
 </p>
 
 > [!WARNING]
 > **Development status:** Serket is an active pre-release project. Core collection, graph construction, saved-result analysis, universal search and interactive path exploration work, but coverage is not yet complete. Do not treat the current output as an exhaustive assessment or use it as the sole basis for a production security decision.
 
+> [!TIP]
+> **Standalone Windows Binary Available:** You can download the pre-compiled `serket.exe` directly from [Release v2.1.0](https://github.com/araizcorp/Serket/releases/tag/v2.1.0) with zero Python prerequisites or virtual environment configuration required.
+
 Serket collects authorized Active Directory metadata over LDAP, converts identities and permissions into a directed graph, and presents the result in an original investigation workbench. It is designed for defenders, auditors, red teams and purple teams working under an explicit authorization and rules of engagement.
 
 Serket is not presented as “undetectable.” Its controlled collection profile reduces unnecessary queries, measures the collection footprint and helps an assessment team compare expected activity with DC, SIEM, EDR and NDR telemetry.
 
+---
+
+### Visual Workbench Interface
+
 ![Serket Workbench — Domain overview](docs/media/serket-workbench-overview.png)
 
 | Attack Paths (OPSEC-weighted) | Subgraph Explorer & Node Inspector |
-|---|---|
+|:---:|:---:|
 | ![Paths](docs/media/serket-workbench-paths.png) | ![Explorer](docs/media/serket-workbench-explorer.png) |
 
 | Observed Attack Surface | Telemetry & Coverage Engineering |
-|---|---|
+|:---:|:---:|
 | ![Attack Surface](docs/media/serket-workbench-surface.png) | ![Telemetry & Coverage](docs/media/serket-workbench-telemetry.png) |
 
 | In-Browser SKQL Query Console | Authorization Gate |
-|---|---|
+|:---:|:---:|
 | ![Query Console](docs/media/serket-workbench-console.png) | ![Legal Gate](docs/media/serket-legal-gate.png) |
 
-> Screenshots captured from the real workbench serving the included `demo/` bundle.
+> Screenshots captured from the live Serket v2.1 Workbench serving the included `demo/` bundle.
+
+---
 
 ## Current capabilities
 
 | Capability | Status | Notes |
-|---|---:|---|
-| LDAP/DC-only collection | Available | Users, groups, systems, domain policy, OU/container hierarchy, GPOs, trusts, owner+DACL permissions and AD CS data |
-| Optional offline SYSVOL | Available | Explicit local/mounted copy only: Registry.pol, script inventory and Local Users and Groups preferences |
-| System classification | Available | Workstations, member servers and domain controllers are modeled and counted separately |
-| Authentication | Available | Password prompt, NTLM hash, Kerberos cache and optional LDAPS |
-| Rate-limit jitter | Available | `--rate-limit` + `--jitter` randomize the LDAP paging cadence (±50% by default) |
-| Relationship graph | Available | Directed multigraph; parallel permissions are preserved instead of overwriting one another |
-| Global path analysis | Available | OPSEC-weighted Dijkstra paths to high-value nodes |
-| Interactive path query | Available | Choose a loaded source and target/Tier 0; computation uses the saved graph and does not query AD again |
-| Universal search | Available | Name, SID, UPN, DN, DNS name and `sAMAccountName` |
-| Node and relationship inspector | Available | Controls, controlled by, memberships, paths, evidence, impact and remediation context |
-| Local web workbench | Available | Overview, Paths, Explorer, Exposure and Detection views; English default, Spanish optional |
-| Docker packaging | Prepared | Hardened image, Compose file and multi-architecture GHCR workflow are included |
-| AD CS classification | Partial | Automated ESC1 classification only |
-| Trust analysis | Partial | Trust objects are enumerated; advanced abuse conclusions are not inferred yet |
-| Detection validation | Partial | Guidance and expected telemetry are shown; live SIEM/EDR evidence import is not implemented yet |
-| Collection bundle | Available | Manifest plus separate JSON files for identities, systems, permissions, directory structure, AD CS, graph and analysis |
+|:---|:---:|:---|
+| **LDAP/DC-only collection** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Users, groups, systems, domain policy, OU/container hierarchy, GPOs, trusts, owner+DACL permissions and AD CS data |
+| **Optional offline SYSVOL** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Explicit local/mounted copy only: Registry.pol, script inventory and Local Users and Groups preferences |
+| **System classification** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Workstations, member servers and domain controllers are modeled and counted separately |
+| **Authentication** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Password prompt, NTLM hash, Kerberos cache and optional LDAPS |
+| **Rate-limit jitter** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | `--rate-limit` + `--jitter` randomize the LDAP paging cadence (±50% by default) |
+| **Relationship graph** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Directed multigraph; parallel permissions are preserved instead of overwriting one another |
+| **Global path analysis** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | OPSEC-weighted Dijkstra paths to high-value nodes |
+| **Interactive path query** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Choose a loaded source and target/Tier 0; computation uses the saved graph and does not query AD again |
+| **Universal search** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Name, SID, UPN, DN, DNS name and `sAMAccountName` |
+| **Node and relationship inspector** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Controls, controlled by, memberships, paths, evidence, impact and remediation context |
+| **Local web workbench** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Overview, Paths, Explorer, Exposure and Detection views; English default, Spanish optional |
+| **Docker packaging** | ![](https://img.shields.io/badge/Prepared-1e293b?style=flat-square) | Hardened image, Compose file and multi-architecture GHCR workflow are included |
+| **AD CS classification** | ![](https://img.shields.io/badge/Partial-f59e0b?style=flat-square) | Automated ESC1 classification only |
+| **Trust analysis** | ![](https://img.shields.io/badge/Partial-f59e0b?style=flat-square) | Trust objects are enumerated; advanced abuse conclusions are not inferred yet |
+| **Detection validation** | ![](https://img.shields.io/badge/Partial-f59e0b?style=flat-square) | Guidance and expected telemetry are shown; live SIEM/EDR evidence import is not implemented yet |
+| **Collection bundle** | ![](https://img.shields.io/badge/Available-10b981?style=flat-square) | Manifest plus separate JSON files for identities, systems, permissions, directory structure, AD CS, graph and analysis |
 
-## How it works
+---
+
+## Architecture & How It Works
 
 ```mermaid
-flowchart LR
-    A["Authorized LDAP session"] --> B["Collector"]
-    B --> C["Directed relationship graph"]
-    C --> D["Path and exposure analysis"]
-    D --> E["Manifest + categorized JSON files + text report"]
-    E --> F["Local read-only API"]
-    F --> G["Serket Workbench"]
+flowchart TD
+    subgraph Target["Active Directory Domain Controller"]
+        DC[("LDAP / LDAPS<br/>Port 389 / 636")]
+    end
+
+    subgraph Pipeline["Serket Collection & Analysis Pipeline"]
+        direction TB
+        C1["LDAP Collector<br/>(Paged & Jitter-controlled)"]
+        C2["ACL & Schema Parser<br/>(DACL / LAPS / gMSA / MAQ)"]
+        G1["Directed Multigraph Engine<br/>(NetworkX)"]
+        P1["Path & Posture Analyzer<br/>(OPSEC-weighted Dijkstra)"]
+        C1 --> C2 --> G1 --> P1
+    end
+
+    subgraph Storage["Encrypted / Local Bundle (~/.serket/results)"]
+        B1["manifest.json<br/>users · groups · computers · gpos · acls · graph · analysis"]
+    end
+
+    subgraph Workbench["Serket Local Investigation Workbench"]
+        API["Read-Only API Server<br/>(FastAPI / 127.0.0.1:8080)"]
+        UI["Web Workbench<br/>(Overview · Paths · Explorer · Surface · Console)"]
+        API <--> UI
+    end
+
+    DC -->|"Authorized Read (No Agents)"| C1
+    P1 -->|"Structured JSON Bundle"| B1
+    B1 -->|"Zero-AD Requery"| API
+
+    classDef navy fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc;
+    classDef red fill:#e02b20,stroke:#fca5a5,stroke-width:2px,color:#ffffff;
+    classDef dark fill:#1e293b,stroke:#64748b,stroke-width:1px,color:#e2e8f0;
+    classDef dc fill:#1e1b4b,stroke:#818cf8,stroke-width:2px,color:#e0e7ff;
+
+    class Target,DC dc;
+    class Pipeline,C1,C2,G1,P1 dark;
+    class Storage,B1 navy;
+    class Workbench,API,UI red;
 ```
 
 The browser interface reads the saved result. It never executes validation commands and an interactive path query never reconnects to the directory.
 
+---
+
 ## Controlled collection (OPSEC)
 
-Serket is designed for authorized red team and purple team work where the
-collection itself must stay low-profile:
+Serket is designed for authorized red team and purple team work where the collection itself must stay low-profile:
 
-- **LDAP-only, DC-only, single session.** No SMB, no Kerberos roasting, no
-  port scanning. The only traffic is standard paged LDAP search against one
-  domain controller.
-- **Rate-limited paging with random jitter.** `--rate-limit SEC` (default
-  0.08) sleeps between pages; `--jitter 0-1` (default 0.5) randomizes each
-  pause by ±50% so the cadence does not look like a perfectly regular
-  script. Raise both for a slower, quieter profile
-  (e.g. `--rate-limit 0.4 --jitter 0.7`).
-- **LDAPS** (`--ldaps`) encrypts the queries on the wire.
-- **Footprint measurement.** Every run records the searches, pages and
-  entries it generated (`collection.telemetry` in the manifest) so the team
-  can compare expected activity with DC, SIEM, EDR and NDR telemetry during
-  a purple-team review.
+- **LDAP-only, DC-only, single session.** No SMB, no Kerberos roasting, no port scanning. The only traffic is standard paged LDAP search against one domain controller.
+- **Rate-limited paging with random jitter.** `--rate-limit SEC` (default `0.08`) sleeps between pages; `--jitter 0-1` (default `0.5`) randomizes each pause by ±50% so the cadence does not look like a regular script. Raise both for a quieter profile (e.g. `--rate-limit 0.4 --jitter 0.7`).
+- **LDAPS** (`--ldaps`) encrypts queries in transit on port 636.
+- **Footprint measurement.** Every run records the searches, pages and entries it generated (`collection.telemetry` in the manifest) so the team can compare expected activity with DC, SIEM, EDR and NDR telemetry during a purple-team review.
 
-Serket does not claim to be undetectable: with LDAP query auditing enabled,
-any LDAP client is observable. The goal is a controlled, measurable profile,
-not invisibility.
+Serket does not claim to be undetectable: with LDAP query auditing enabled, any LDAP client is observable. The goal is a controlled, measurable profile, not invisibility.
 
+---
 
 ## Requirements
 
@@ -103,7 +145,10 @@ not invisibility.
 - A domain account with enough read access for the selected collection scope
 - Docker or Podman only if the container workflow is used
 
-ACL, LAPS, gMSA and AD CS visibility depends on the permissions granted to the assessment account and on the configuration of the target environment.
+> [!NOTE]
+> ACL, LAPS, gMSA and AD CS visibility depends on the permissions granted to the assessment account and on the configuration of the target environment.
+
+---
 
 ## Try the synthetic demo
 
@@ -128,6 +173,8 @@ serket --serve demo/serket-demo.json
 ```
 
 Open <http://127.0.0.1:8080>. Native mode binds only to loopback and normally opens the default browser automatically.
+
+---
 
 ## Install for native collection
 
@@ -155,6 +202,9 @@ source /path/to/Serket/.venv/bin/activate
 serket --help
 ```
 
+<details>
+<summary><strong>Alternative: Global pipx installation</strong></summary>
+
 If `pipx` is already installed and you want `serket` on your user `PATH` without activating a virtual environment each time, run this from the cloned repository:
 
 ```bash
@@ -163,6 +213,7 @@ pipx ensurepath
 ```
 
 Open a new terminal after `pipx ensurepath`, then verify the command with `serket --help`.
+</details>
 
 ### Windows PowerShell
 
@@ -177,6 +228,8 @@ serket --help
 ```
 
 `py` is used only to create the environment on Windows. If the launcher is unavailable, replace that first `py` with `python`. After activation, use `python -m pip` so the package and the `serket` command are installed in the active environment.
+
+---
 
 ## Collect an authorized domain
 
@@ -193,7 +246,7 @@ serket \
 
 Serket discovers a domain controller automatically through the Active Directory DNS SRV records for the supplied domain. Use `-dc HOST` only to override discovery, select a specific controller or work around unavailable AD DNS.
 
-### Kerberos
+### Kerberos authentication
 
 ```bash
 export KRB5CCNAME=/tmp/auditor.ccache
@@ -216,45 +269,41 @@ serket \
   --hashes :NT_HASH
 ```
 
-Only use credential material that is explicitly covered by the authorization for the assessment. Prefer LDAPS when the environment supports it.
+> [!IMPORTANT]
+> Only use credential material that is explicitly covered by the authorization for the assessment. Prefer LDAPS when the environment supports it.
 
-### Optional offline SYSVOL evidence
+<details>
+<summary><strong>Advanced: Optional offline SYSVOL evidence</strong></summary>
 
-Supply an explicitly authorized local or mounted SYSVOL copy to confirm GPO
-content without changing the default LDAP-only boundary:
+Supply an explicitly authorized local or mounted SYSVOL copy to confirm GPO content without changing the default LDAP-only boundary:
 
 ```bash
 serket -d corp.local -u auditor -k --sysvol-root /evidence/SYSVOL
 ```
 
-Serket does not discover or mount a share for this option. Registry policy
-parsing is bounded, script contents are represented only by hashes, and GPP
-`cpassword` values are never retained. Without `--sysvol-root`, SYSVOL remains
-`not_assessed` rather than being inferred safe.
+Serket does not discover or mount a share for this option. Registry policy parsing is bounded, script contents are represented only by hashes, and GPP `cpassword` values are never retained. Without `--sysvol-root`, SYSVOL remains `not_assessed` rather than being inferred safe.
+</details>
 
-### Optional Portico external-surface integration
+<details>
+<summary><strong>Advanced: Optional Portico external-surface integration</strong></summary>
 
-Portico remains a separate application so an internet-facing assessment node
-does not need LDAP access and the Serket host does not need outbound internet
-access. Import a transferred, sanitized bridge into an existing package:
+Portico remains a separate application so an internet-facing assessment node does not need LDAP access and the Serket host does not need outbound internet access. Import a transferred, sanitized bridge into an existing package:
 
 ```bash
 serket external-enrich --input assessment.serket \
   --bridge portico-bridge.json --output assessment-external.serket
 ```
 
-For an explicitly authorized combined run, install the standalone `portico`
-executable in `PATH` and opt in:
+For an explicitly authorized combined run, install the standalone `portico` executable in `PATH` and opt in:
 
 ```bash
 serket -d corp.local -u auditor -k --include-external-surface
 ```
 
-This convenience mode invokes `portico scan` and `portico export` as separate
-processes, consumes only the secret-free bridge, and omits external collection
-without failing if Portico is unavailable. Serket does not import Portico's HTTP,
-DNS, or TLS scanner code, and never performs external probing by default.
+This convenience mode invokes `portico scan` and `portico export` as separate processes, consumes only the secret-free bridge, and omits external collection without failing if Portico is unavailable. Serket does not import Portico's HTTP, DNS, or TLS scanner code, and never performs external probing by default.
+</details>
 
+---
 
 ### Collection controls
 
@@ -267,17 +316,18 @@ serket \
   --no-adcs
 ```
 
-| Option | Purpose |
-|---|---|
-| `-dc HOST` | Override automatic AD DNS discovery and use a specific controller |
-| `--rate-limit SEC` | Delay between LDAP result pages; default `0.08` seconds |
-| `--max-paths N` | Maximum global paths saved; default `20` |
-| `--no-acls` | Skip owner and DACL collection; faster but removes important permission edges |
-| `--no-adcs` | Skip certificate-template enumeration |
-| `--include-external-surface` | Explicitly invoke standalone Portico and consume its sanitized bridge |
-| `--ldaps` | Use LDAP over TLS on port 636 |
-| `-o DIR` | Select the output directory |
-| `--quiet` | Suppress progress output for machine-oriented execution |
+| Flag / Option | Type | Default | Description |
+|:---|:---:|:---:|:---|
+| `-dc HOST` | `string` | Auto-SRV | Override automatic AD DNS discovery and use a specific controller |
+| `--rate-limit SEC` | `float` | `0.08` | Delay between LDAP result pages in seconds |
+| `--jitter FLOAT` | `float` | `0.50` | Random variance percentage applied to rate-limit sleep cadence (±50%) |
+| `--max-paths N` | `int` | `20` | Maximum global attack paths precomputed and saved |
+| `--no-acls` | `flag` | `False` | Skip owner and DACL collection; faster but removes permission edges |
+| `--no-adcs` | `flag` | `False` | Skip certificate template and enrollment hierarchy enumeration |
+| `--include-external-surface` | `flag` | `False` | Explicitly invoke standalone Portico and consume its sanitized bridge |
+| `--ldaps` | `flag` | `False` | Enforce LDAP over TLS on port 636 |
+| `-o DIR` | `path` | `~/.serket/` | Target directory for generated result bundle |
+| `--quiet` | `flag` | `False` | Suppress interactive CLI progress bars for automated pipelines |
 
 ACL and ADCS descriptor queries automatically request the owner and DACL through the Microsoft LDAP security-descriptor control. No additional flag or dependency is required. `--no-acls` and `--no-adcs` are applied to the collection pipeline; they are not display-only switches.
 
@@ -287,9 +337,9 @@ The standard Serket run is an LDAP/DC-only collection. It covers the directory-s
 
 It does **not** contact every domain-joined host. Consequently, a standard run does not claim host-derived relationships such as `HasSession`, local `AdminTo`, `CanRDP`, `ExecuteDCOM`, `CanPSRemote` or `SQLAdmin`. Those require SMB/RPC, registry or host telemetry and a different authorization/noise profile. Every result records this distinction under `coverage` so an absent relationship is not presented as evidence that it does not exist. This follows the directory/DC-only versus computer-collection distinction in the [SharpHound collection methods](https://bloodhound.specterops.io/collect-data/ce-collection/sharphound-flags).
 
-Run `serket --help` for the complete CLI reference. The legacy `python serket.py` entry point remains available from a source checkout.
+---
 
-## Results
+## Results & Bundle Structure
 
 By default Serket writes one collection directory below `~/.serket/results/`:
 
@@ -316,6 +366,8 @@ serket_corp_local_YYYYMMDD_HHMMSS/
 `serket server`, `--load` and `--serve` accept either the collection directory or its `manifest.json`. Legacy single-file Serket JSON remains readable.
 
 Results produced by the affected early v2.0 collector, where binary SID bytes were serialized as unreadable text, are repaired in memory when loaded. This restores canonical identity IDs, workstation/server/DC classification, Tier-0 marking and membership-derived paths. It cannot restore ACL relationships that were never written to the old file; run a fresh collection for complete owner/DACL coverage.
+
+---
 
 ### Open the latest result in the Workbench
 
@@ -347,6 +399,8 @@ serket \
   --port 8080
 ```
 
+---
+
 ## Using the Workbench
 
 1. **Overview** shows domain, graph and collection metrics, separate workstation/server/DC counts, data quality and the highest-priority calculated paths.
@@ -361,21 +415,23 @@ serket \
 
 Use the `EN / ES` selector to change language. The interface stores only the language preference in the browser.
 
-## Local API
+---
 
-The Workbench uses a small read-only API that can also support local integrations:
+## Local API Reference
 
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/api/search?q=aria` | Universal node search |
-| `GET` | `/api/nodes/{node_id}` | Node details and relationship directions |
-| `GET` | `/api/graph` | Normalized saved graph |
-| `GET` | `/api/stats` | Graph, system-role and data-quality metrics |
-| `GET` | `/api/coverage` | Collected directory scope and explicitly missing host scope |
-| `GET` | `/api/paths` | Precomputed global paths |
-| `POST` | `/api/query-paths` | On-demand path calculation over the loaded graph |
-| `GET` | `/api/surface` | Derived exposure summary |
-| `GET` | `/healthz` | Local health check |
+The Workbench is powered by a local, read-only API designed for fast interactive inspection and local scripting:
+
+| Method | Endpoint | Description |
+|:---:|:---|:---|
+| ![](https://img.shields.io/badge/GET-0f172a?style=flat-square) | `/api/search?q=query` | Universal node search by name, SID, UPN, DN, or sAMAccountName |
+| ![](https://img.shields.io/badge/GET-0f172a?style=flat-square) | `/api/nodes/{node_id}` | Detailed node properties and directional relationships |
+| ![](https://img.shields.io/badge/GET-0f172a?style=flat-square) | `/api/graph` | Normalized graph schema and multigraph elements |
+| ![](https://img.shields.io/badge/GET-0f172a?style=flat-square) | `/api/stats` | Graph, system-role counts, and data-quality metrics |
+| ![](https://img.shields.io/badge/GET-0f172a?style=flat-square) | `/api/coverage` | Collected directory scope vs. host telemetry gaps |
+| ![](https://img.shields.io/badge/GET-0f172a?style=flat-square) | `/api/paths` | Precomputed global Tier 0 attack paths |
+| ![](https://img.shields.io/badge/POST-e02b20?style=flat-square) | `/api/query-paths` | On-demand path calculation over loaded graph (zero AD requery) |
+| ![](https://img.shields.io/badge/GET-0f172a?style=flat-square) | `/api/surface` | Derived exposure summary (Kerberos, AD CS, ACLs, LAPS, gMSA) |
+| ![](https://img.shields.io/badge/GET-0f172a?style=flat-square) | `/healthz` | Local API health and readiness check |
 
 Example query body:
 
@@ -390,6 +446,8 @@ Example query body:
 ```
 
 The response explicitly reports `"queried_directory": false` because the calculation uses only the graph already loaded in memory.
+
+---
 
 ## Relationship and exposure coverage
 
@@ -412,6 +470,8 @@ Current graph construction includes, where supported by collected evidence:
 Serket preserves multiple permissions between the same source and target. Non-traversable evidence such as an isolated replication right or ordinary certificate enrollment remains visible in the permission inventory but is excluded from pathfinding until the conditions for a traversable relationship are met.
 
 These are relationship and exposure observations, not proof that an exploitation action occurred or will succeed. Validate every path in the target environment and within the agreed rules of engagement.
+
+---
 
 ## Docker
 
@@ -444,6 +504,8 @@ docker pull ghcr.io/araizcorp/serket:latest
 
 See [DOCKER.md](DOCKER.md) for read-only result mounts, Compose usage and publication details.
 
+---
+
 ## Security and privacy model
 
 - Native serving binds to `127.0.0.1`; documented container publishing also uses host loopback.
@@ -454,6 +516,8 @@ See [DOCKER.md](DOCKER.md) for read-only result mounts, Compose usage and public
 - The collector records query/page/entry and stage telemetry for later review.
 
 Serket does not replace authorization, a collection plan or change control. Store result files as sensitive client evidence and remove them according to the engagement retention policy.
+
+---
 
 ## Known limitations and roadmap
 
@@ -468,7 +532,7 @@ The following items are not complete in this release:
 - Large-domain performance validation and broader graph-query presets
 - Web-based PDF, Markdown and CSV export hub
 
-Roadmap items are not security claims. Track implementation and tests in repository releases and issues.
+---
 
 ## Development and verification
 
@@ -480,7 +544,9 @@ node --check serket/ui/path-graph-interactions.js
 docker build --tag serket:dev .
 ```
 
-The automated suite covers API security headers, graph normalization, raw binary SID and security-descriptor handling, DCSync post-processing, parallel permissions, system classification, paths to domain controllers, legacy-result recovery, internationalization, universal search, node relationship directions and arbitrary-source path queries. A successful unit test run does not replace validation against an authorized lab domain.
+The automated suite covers API security headers, graph normalization, raw binary SID and security-descriptor handling, DCSync post-processing, parallel permissions, system classification, paths to domain controllers, legacy-result recovery, internationalization, universal search, node relationship directions and arbitrary-source path queries.
+
+---
 
 ## Project layout
 
@@ -497,6 +563,8 @@ demo/                      synthetic evaluation dataset
 tests/                     automated regression tests
 .github/workflows/         test and GHCR publication workflow
 ```
+
+---
 
 ## Responsible use, license and ownership
 
