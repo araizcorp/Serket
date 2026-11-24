@@ -50,11 +50,14 @@ class ApiTests(unittest.TestCase):
         messages = []
         request_sent = False
 
+        disconnect_event = asyncio.Event()
+
         async def receive():
             nonlocal request_sent
             if not request_sent:
                 request_sent = True
                 return {"type": "http.request", "body": b"", "more_body": False}
+            await disconnect_event.wait()
             return {"type": "http.disconnect"}
 
         async def send(message):
