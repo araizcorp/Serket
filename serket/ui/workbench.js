@@ -1447,6 +1447,40 @@ function bindStaticEvents() {
       helpModal.classList.remove("open");
     }
   });
+
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get("nolegal") === "1" || urlParams.has("view")) {
+    legalModal.classList.remove("open");
+  }
+  const targetView = urlParams.get("view");
+  if (targetView) {
+    switchView(targetView);
+    if (targetView === "paths" && state.paths.length) {
+      setTimeout(() => selectPath(0, true), 300);
+    }
+    if (targetView === "explorer") {
+      setTimeout(() => {
+        state.graphOptions.scope = urlParams.get("scope") || "relevant";
+        if (urlParams.has("node")) {
+          focusExplorerNode(urlParams.get("node"), false);
+        } else {
+          renderGraph();
+        }
+        if (urlParams.get("inspector") === "1" || urlParams.get("details") === "1") {
+          const inspectId = urlParams.get("inspect") || "S-1-5-21-42424242-51515151-61616161-512";
+          const targetObj = state.nodeMap.get(inspectId);
+          if (targetObj) inspectNode(targetObj);
+          openExplorerInspector();
+        }
+      }, 350);
+    }
+  }
+  if (urlParams.get("console") === "1") {
+    setTimeout(() => {
+      const cb = $("#console-button");
+      if (cb) cb.click();
+    }, 400);
+  }
 }
 
 window.addEventListener("DOMContentLoaded", () => {

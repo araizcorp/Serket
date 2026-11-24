@@ -23,9 +23,17 @@ Serket no se presenta como “indetectable”. Su perfil de colección controlad
 
 ![Serket Workbench — Vista general del dominio](docs/media/serket-workbench-overview.png)
 
-| | |
+| Rutas de ataque (ponderación OPSEC) | Explorador de subgrafos e inspector |
 |---|---|
 | ![Rutas](docs/media/serket-workbench-paths.png) | ![Explorador](docs/media/serket-workbench-explorer.png) |
+
+| Superficie de ataque observada | Telemetría e ingeniería de cobertura |
+|---|---|
+| ![Superficie de ataque](docs/media/serket-workbench-surface.png) | ![Telemetría y cobertura](docs/media/serket-workbench-telemetry.png) |
+
+| Consola de consultas SKQL integrada | Pasarela de autorización |
+|---|---|
+| ![Consola de consultas](docs/media/serket-workbench-console.png) | ![Pasarela legal](docs/media/serket-legal-gate.png) |
 
 > Capturas reales del workbench sirviendo el bundle `demo/` incluido.
 

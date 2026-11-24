@@ -23,9 +23,17 @@ Serket is not presented as “undetectable.” Its controlled collection profile
 
 ![Serket Workbench — Domain overview](docs/media/serket-workbench-overview.png)
 
-| | |
+| Attack Paths (OPSEC-weighted) | Subgraph Explorer & Node Inspector |
 |---|---|
 | ![Paths](docs/media/serket-workbench-paths.png) | ![Explorer](docs/media/serket-workbench-explorer.png) |
+
+| Observed Attack Surface | Telemetry & Coverage Engineering |
+|---|---|
+| ![Attack Surface](docs/media/serket-workbench-surface.png) | ![Telemetry & Coverage](docs/media/serket-workbench-telemetry.png) |
+
+| In-Browser SKQL Query Console | Authorization Gate |
+|---|---|
+| ![Query Console](docs/media/serket-workbench-console.png) | ![Legal Gate](docs/media/serket-legal-gate.png) |
 
 > Screenshots captured from the real workbench serving the included `demo/` bundle.
 
