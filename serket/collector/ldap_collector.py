@@ -1144,6 +1144,44 @@ class LDAPCollector:
             return f"GUID:{guid}"
         return self._dn_map.get(entry.get("dn", "").lower(), "")
 
+    def collect_schema_names(self) -> dict[str, str]:
+        """Resolve GUIDs of password-bearing attributes from the schema.
+
+        Legacy LAPS (ms-Mcs-AdmPwd) schema GUIDs are generated per forest, so
+        they cannot be hardcoded; we ask the schema partition directly.
+        Falls back to the well-known defaults when the query is unavailable.
+        """
+        wanted = {"ms-Mcs-AdmPwd", "ms-LAPS-Password", "ms-DS-ManagedPassword"}
+        fallback = {
+            "e362ed86-b728-0842-b27d-2dea7a9df218": "ms-DS-ManagedPassword",
+        }
+        try:
+            entries = self._search(
+                f"CN=Schema,CN=Configuration,{self.base_dn}",
+                "(|(lDAPDisplayName=ms-Mcs-AdmPwd)(lDAPDisplayName=ms-LAPS-Password)"
+                "(lDAPDisplayName=ms-DS-ManagedPassword))",
+                ["lDAPDisplayName", "schemaIDGUID"],
+                SUBTREE,
+            )
+        except LDAPException:
+            return dict(fallback)
+        names: dict[str, str] = {}
+        for entry in entries:
+            attrs = entry["attributes"]
+            name = _str(attrs.get("lDAPDisplayName"))
+            if name not in wanted:
+                continue
+            raw = _raw_first(entry, "schemaIDGUID")
+            if isinstance(raw, (bytes, bytearray)):
+                guid = format_guid(bytes(raw))
+            else:
+                guid = ""
+            if guid:
+                names[guid] = name
+        for guid, name in fallback.items():
+            names.setdefault(guid, name)
+        return names
+
     def collect_acls(self) -> list[dict]:
         """Collect DACLs across AD structure objects, not only protected ones."""
         sd_ctrl = security_descriptor_control(sdflags=0x05)
@@ -1160,6 +1198,7 @@ class LDAPCollector:
         all_aces: list[dict] = []
         seen: set[tuple] = set()
         replication_rights: dict[tuple[str, str], set[str]] = {}
+        schema_names = self.collect_schema_names()
 
         for entry in entries:
             raw_sd = _raw_first(entry, "nTSecurityDescriptor")
@@ -1182,7 +1221,7 @@ class LDAPCollector:
                 ):
                     self._adminsdholder_dacl_fingerprint = fingerprint
 
-            for ace in parse_security_descriptor(bytes(raw_sd)):
+            for ace in parse_security_descriptor(bytes(raw_sd), schema_names):
                 key = (
                     ace.get("sid"), target_id, ace.get("edge_type"),
                     ace.get("object_guid"), ace.get("ace_flags"),

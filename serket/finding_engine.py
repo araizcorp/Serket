@@ -18,6 +18,7 @@ ACL_RELATIONS = {
     "AllExtendedRights", "ForceChangePassword", "AddMember", "AddSelf",
     "AddKeyCredentialLink", "AddAllowedToAct", "WriteSPN",
     "WriteAccountRestrictions", "WriteRBCD", "DCSync",
+    "ReadLAPSPassword", "ReadGMSAPassword",
 }
 
 LEGACY_RULES = (
@@ -398,6 +399,73 @@ def generate_findings(*, ad_data: dict, ag: ADGraph,
                 risk_components=components,
                 created_at=created_at,
                 remediation=_remediation("MAQAbuseObserved"),
+            ))
+
+    # ── Domain-level posture: MAQ and sAMAccountName spoofing ────────────
+    domain_info = ad_data.get("domain", {})
+    maq = domain_info.get("maq")
+    domain_id = str(domain_info.get("sid") or domain_info.get("name") or "domain")
+    has_dcs = any(
+        str(n.get("type", "")).lower() in {"domaincontroller", "server", "computer"}
+        and (n.get("is_dc") or str(n.get("type", "")).lower() == "domaincontroller")
+        for n in graph.nodes.values()
+    )
+    if isinstance(maq, int) and maq > 0:
+        components = _risk("medium", "conditional")
+        findings.append(Finding.create(
+            snapshot_id=snapshot_id,
+            object_id=domain_id,
+            stable_object_id=domain_id,
+            object_type="domain",
+            technique="MachineAccountQuota",
+            badge="MAQ_ENABLED",
+            category="acl",
+            severity="medium",
+            confidence="high",
+            certainty="conditional",
+            evidence=[Evidence(
+                type="domain_policy",
+                source="ms-DS-MachineAccountQuota",
+                value={"maq": maq},
+                interpretation=f"Any domain account can create up to {maq} machine accounts",
+            )],
+            paths=[],
+            tier0_reachable=False,
+            mitre_technique="T1136.002",
+            mitre_tactic=TACTICS["acl"],
+            risk_score=components.total,
+            risk_components=components,
+            created_at=created_at,
+            remediation=_remediation("MachineAccountQuota"),
+        ))
+        if has_dcs:
+            components = _risk("high", "conditional")
+            findings.append(Finding.create(
+                snapshot_id=snapshot_id,
+                object_id=domain_id,
+                stable_object_id=domain_id,
+                object_type="domain",
+                technique="SAMAccountNameSpoofing",
+                badge="SPOOFABLE_SAMNAME",
+                category="kerberos",
+                severity="high",
+                confidence="medium",
+                certainty="conditional",
+                evidence=[Evidence(
+                    type="domain_policy",
+                    source="ms-DS-MachineAccountQuota + DC accounts",
+                    value={"maq": maq},
+                    interpretation="MAQ>0 with readable DC accounts: CVE-2021-42278/42287 "
+                                   "(nopac) sAMAccountName spoofing is possible",
+                )],
+                paths=[],
+                tier0_reachable=False,
+                mitre_technique="T1558.003",
+                mitre_tactic=TACTICS["kerberos"],
+                risk_score=components.total,
+                risk_components=components,
+                created_at=created_at,
+                remediation=_remediation("SAMAccountNameSpoofing"),
             ))
 
     for source, target, key, edge in _iter_all_edges(graph):

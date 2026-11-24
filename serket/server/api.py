@@ -14,11 +14,12 @@ import threading
 import webbrowser
 from typing import Any
 
-_UI_HTML_PATH = os.path.join(os.path.dirname(__file__), "..", "ui", "workbench.html")
+_UI_HTML_PATH = os.path.join(os.path.dirname(__file__), "..", "ui", "simple.html")
+_CLASSIC_HTML_PATH = os.path.join(os.path.dirname(__file__), "..", "ui", "workbench.html")
 
 
-def _load_ui() -> str:
-    html_path = os.path.normpath(_UI_HTML_PATH)
+def _load_ui(path: str) -> str:
+    html_path = os.path.normpath(path)
     if not os.path.isfile(html_path):
         raise FileNotFoundError(f"Web UI not found: {html_path}")
     with open(html_path, encoding="utf-8") as fh:
@@ -50,7 +51,8 @@ def create_app(data: dict[str, Any]):
             "Install with:  pip install fastapi uvicorn"
         ) from exc
 
-    html = _load_ui()
+    html = _load_ui(_UI_HTML_PATH)
+    classic_html = _load_ui(_CLASSIC_HTML_PATH)
     # FastAPI resolves postponed annotations through module globals, while
     # optional server imports intentionally live inside create_app().
     globals()["Request"] = Request
@@ -77,6 +79,10 @@ def create_app(data: dict[str, Any]):
     @app.get("/", response_class=HTMLResponse)
     async def ui():
         return html
+
+    @app.get("/classic", response_class=HTMLResponse)
+    async def classic_ui():
+        return classic_html
 
     @app.get("/healthz")
     async def health():
